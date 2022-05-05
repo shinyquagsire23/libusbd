@@ -1,0 +1,58 @@
+#ifndef _LIBUSBD_H
+#define _LIBUSBD_H
+
+#include <stdint.h>
+
+#define USB_EP_TYPE_CTRL (0)
+#define USB_EP_TYPE_ISOC (1)
+#define USB_EP_TYPE_BULK (2)
+#define USB_EP_TYPE_INT  (3)
+
+#define USB_EP_DIR_OUT (0)
+#define USB_EP_DIR_IN (1)
+
+typedef struct libusbd_macos_ctx_t libusbd_macos_ctx_t;
+
+enum libusbd_error
+{
+    LIBUSBD_SUCCESS = 0,
+    LIBUSBD_INVALID_ARGUMENT = -1,
+    LIBUSBD_NOT_ENUMERATED = -2,
+    LIBUSBD_TIMEOUT = -3,
+    LIBUSBD_NOT_IMPLEMENTED = -4,
+    LIBUSBD_NONDESCRIPT_ERROR = -5,
+};
+
+typedef struct libusbd_iface_t {
+    uint8_t bClass;
+    uint8_t bSubclass;
+    uint8_t bProtocol;
+} libusbd_iface_t;
+
+typedef struct libusbd_ctx_t
+{
+    union
+    {
+        void* pPlatCtx;
+        libusbd_macos_ctx_t* pMacosCtx;
+    };
+    uint8_t bNumInterfaces;
+    libusbd_iface_t aInterfaces[16];
+} libusbd_ctx_t;
+
+int libusbd_init(libusbd_ctx_t** pCtxOut);
+int libusbd_free(libusbd_ctx_t* pCtx);
+
+int libusbd_iface_alloc(libusbd_ctx_t* pCtx, uint8_t* pOut);
+int libusbd_iface_finalize(libusbd_ctx_t* pCtx, uint8_t iface_num);
+int libusbd_iface_standard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, uint8_t* pDesc, uint64_t descSz);
+int libusbd_iface_nonstandard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, uint8_t* pDesc, uint64_t descSz);
+int libusbd_iface_add_endpoint(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t type, uint8_t direction, uint32_t maxPktSize, uint8_t interval, uint64_t unk, uint64_t* pEpOut);
+int libusbd_iface_set_class(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t val);
+int libusbd_iface_set_subclass(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t val);
+int libusbd_iface_set_protocol(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t val);
+
+int libusbd_ep_read(libusbd_ctx_t* pCtx, uint64_t ep, void* data, uint32_t len, uint64_t timeoutMs);
+int libusbd_ep_write(libusbd_ctx_t* pCtx, uint64_t ep, void* data, uint32_t len, uint64_t timeoutMs);
+
+#endif // _LIBUSBD_H

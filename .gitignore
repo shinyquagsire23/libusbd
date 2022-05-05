@@ -1,0 +1,6 @@
+libusbd.dylib
+libusbd.dylib.dSYM
+.DS_Store
+example_keyboard
+examples/keyboard/example_keyboard
+examples/keyboard/example_keyboard.dSYM
