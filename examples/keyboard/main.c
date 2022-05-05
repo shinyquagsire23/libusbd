@@ -27,6 +27,8 @@ int main()
     uint8_t iface_num = 0;
     uint64_t ep_out;
     libusbd_iface_alloc(pCtx, &iface_num);
+    libusbd_config_finalize(pCtx);
+
     libusbd_iface_set_class(pCtx, iface_num, 3);
     libusbd_iface_set_subclass(pCtx, iface_num, 1);
     libusbd_iface_set_protocol(pCtx, iface_num, 1);
@@ -56,7 +58,7 @@ int main()
 
         // 0xE0000001 = Device not enumerated
         // 0xE00002D6 = Send timed out
-        s_ret = libusbd_ep_write(pCtx, ep_out, test_send, sizeof(test_send), 100);
+        s_ret = libusbd_ep_write(pCtx, iface_num, ep_out, test_send, sizeof(test_send), 100);
         printf("write s_ret %x\n", s_ret);
 
         if (s_ret == LIBUSBD_NOT_ENUMERATED) {
@@ -84,7 +86,7 @@ int main()
         }
 
 
-        s_ret = libusbd_ep_write(pCtx, ep_out, test_send_2, sizeof(test_send_2), 100);
+        s_ret = libusbd_ep_write(pCtx, iface_num, ep_out, test_send_2, sizeof(test_send_2), 100);
         printf("write s_ret %x\n", s_ret);
 
         idx++;

@@ -31,11 +31,18 @@ int libusbd_free(libusbd_ctx_t* pCtx)
     return LIBUSBD_SUCCESS;
 }
 
+int libusbd_config_finalize(libusbd_ctx_t* pCtx)
+{
+    return libusbd_macos_config_finalize(pCtx);
+}
+
 int libusbd_iface_alloc(libusbd_ctx_t* pCtx, uint8_t* pOut)
 {
     if (!pCtx) {
         return LIBUSBD_INVALID_ARGUMENT;
     }
+
+    libusbd_macos_iface_alloc(pCtx);
 
     // TODO oob
     if (pOut)
@@ -112,12 +119,12 @@ int libusbd_iface_set_protocol(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t v
     return LIBUSBD_SUCCESS;
 }
 
-int libusbd_ep_read(libusbd_ctx_t* pCtx, uint64_t ep, void* data, uint32_t len, uint64_t timeoutMs)
+int libusbd_ep_read(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, void* data, uint32_t len, uint64_t timeoutMs)
 {
     return LIBUSBD_NOT_IMPLEMENTED;
 }
 
-int libusbd_ep_write(libusbd_ctx_t* pCtx, uint64_t ep, void* data, uint32_t len, uint64_t timeoutMs)
+int libusbd_ep_write(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, void* data, uint32_t len, uint64_t timeoutMs)
 {
-    return libusbd_macos_ep_write(pCtx, ep, data, len, timeoutMs);
+    return libusbd_macos_ep_write(pCtx, iface_num, ep, data, len, timeoutMs);
 }

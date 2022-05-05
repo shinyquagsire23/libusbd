@@ -43,6 +43,8 @@ typedef struct libusbd_ctx_t
 int libusbd_init(libusbd_ctx_t** pCtxOut);
 int libusbd_free(libusbd_ctx_t* pCtx);
 
+int libusbd_config_finalize(libusbd_ctx_t* pCtx);
+
 int libusbd_iface_alloc(libusbd_ctx_t* pCtx, uint8_t* pOut);
 int libusbd_iface_finalize(libusbd_ctx_t* pCtx, uint8_t iface_num);
 int libusbd_iface_standard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, uint8_t* pDesc, uint64_t descSz);
@@ -52,7 +54,7 @@ int libusbd_iface_set_class(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t val)
 int libusbd_iface_set_subclass(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t val);
 int libusbd_iface_set_protocol(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t val);
 
-int libusbd_ep_read(libusbd_ctx_t* pCtx, uint64_t ep, void* data, uint32_t len, uint64_t timeoutMs);
-int libusbd_ep_write(libusbd_ctx_t* pCtx, uint64_t ep, void* data, uint32_t len, uint64_t timeoutMs);
+int libusbd_ep_read(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, void* data, uint32_t len, uint64_t timeoutMs);
+int libusbd_ep_write(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, void* data, uint32_t len, uint64_t timeoutMs);
 
 #endif // _LIBUSBD_H
