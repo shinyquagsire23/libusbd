@@ -24,6 +24,18 @@ int main()
 
     libusbd_init(&pCtx);
 
+    //libusbd_set_vid(pCtx, 0x1234);
+    libusbd_set_pid(pCtx, 0x1234);
+    libusbd_set_version(pCtx, 0x1234);
+
+    libusbd_set_class(pCtx, 0);
+    libusbd_set_subclass(pCtx, 0);
+    libusbd_set_protocol(pCtx, 0);
+
+    libusbd_set_manufacturer_str(pCtx, "Manufacturer");
+    libusbd_set_product_str(pCtx, "Product");
+    libusbd_set_serial_str(pCtx, "Serial");
+
     uint8_t iface_num = 0;
     uint64_t ep_out;
     libusbd_iface_alloc(pCtx, &iface_num);
@@ -42,7 +54,7 @@ int main()
 
     libusbd_iface_standard_desc(pCtx, iface_num, 0x21, 0xF, hid_desc, sizeof(hid_desc));
     libusbd_iface_nonstandard_desc(pCtx, iface_num, 0x22, 0xF, hid_report_desc, sizeof(hid_report_desc));
-    libusbd_iface_add_endpoint(pCtx, iface_num, USB_EP_TYPE_INT, USB_EP_DIR_IN, 8, 10, 0, &ep_out);
+    libusbd_iface_add_endpoint(pCtx, iface_num, USB_EPATTR_TTYPE_INTR, USB_EP_DIR_IN, 8, 10, 0, &ep_out);
     libusbd_iface_finalize(pCtx, iface_num);
 
     int enum_waits = 0;

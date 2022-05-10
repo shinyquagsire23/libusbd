@@ -4,3 +4,14 @@ libusbd.dylib.dSYM
 example_keyboard
 examples/keyboard/example_keyboard
 examples/keyboard/example_keyboard.dSYM
+*.dSYM
+example_ums
+example_gamepad
+example_nintendo
+examples/ums/example_ums
+examples/gamepad/example_gamepad
+examples/nintendo/example_nintendo
+*.iso
+log*.txt
+notes.txt
+*crash.txt

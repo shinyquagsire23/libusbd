@@ -265,9 +265,23 @@ uint8_t alt_IOUSBDeviceDescriptionGetSubClass(alt_IOUSBDeviceDescriptionRef ref)
 	return __getDictNumber(ref, CFSTR("deviceSubClass"));	
 }
 
+void alt_IOUSBDeviceDescriptionSetSubClass(alt_IOUSBDeviceDescriptionRef devDesc, UInt8 val)
+{
+	CFNumberRef aNumber = CFNumberCreate(devDesc->allocator, kCFNumberCharType, &val);
+	CFDictionarySetValue(devDesc->info, CFSTR("deviceSubClass"), aNumber);
+	CFRelease(aNumber);
+}
+
 uint8_t alt_IOUSBDeviceDescriptionGetProtocol(alt_IOUSBDeviceDescriptionRef ref)
 {
 	return __getDictNumber(ref, CFSTR("deviceProtocol"));	
+}
+
+void alt_IOUSBDeviceDescriptionSetProtocol(alt_IOUSBDeviceDescriptionRef devDesc, UInt8 val)
+{
+	CFNumberRef aNumber = CFNumberCreate(devDesc->allocator, kCFNumberCharType, &val);
+	CFDictionarySetValue(devDesc->info, CFSTR("deviceProtocol"), aNumber);
+	CFRelease(aNumber);
 }
 
 uint16_t alt_IOUSBDeviceDescriptionGetVendorID(alt_IOUSBDeviceDescriptionRef ref)
@@ -299,6 +313,13 @@ uint16_t alt_IOUSBDeviceDescriptionGetVersion(alt_IOUSBDeviceDescriptionRef ref)
 	return __getDictNumber(ref, CFSTR("deviceID"));	
 }
 
+void alt_IOUSBDeviceDescriptionSetVersion(alt_IOUSBDeviceDescriptionRef devDesc, UInt16 val)
+{
+	CFNumberRef aNumber = CFNumberCreate(devDesc->allocator, kCFNumberShortType, &val);
+	CFDictionarySetValue(devDesc->info, CFSTR("deviceID"), aNumber);
+	CFRelease(aNumber);
+}
+
 CFStringRef alt_IOUSBDeviceDescriptionGetManufacturerString(alt_IOUSBDeviceDescriptionRef ref)
 {
 	return CFDictionaryGetValue(ref->info, CFSTR("manufacturerString"));
@@ -306,6 +327,14 @@ CFStringRef alt_IOUSBDeviceDescriptionGetManufacturerString(alt_IOUSBDeviceDescr
 CFStringRef alt_IOUSBDeviceDescriptionGetProductString(alt_IOUSBDeviceDescriptionRef ref)
 {
 	return CFDictionaryGetValue(ref->info, CFSTR("productString"));
+}
+void alt_IOUSBDeviceDescriptionSetManufacturerString(alt_IOUSBDeviceDescriptionRef ref, CFStringRef val)
+{
+	CFDictionarySetValue(ref->info, CFSTR("manufacturerString"), val);
+}
+void alt_IOUSBDeviceDescriptionSetProductString(alt_IOUSBDeviceDescriptionRef ref, CFStringRef val)
+{
+	CFDictionarySetValue(ref->info, CFSTR("productString"), val);
 }
 CFStringRef alt_IOUSBDeviceDescriptionGetSerialString(alt_IOUSBDeviceDescriptionRef ref)
 {

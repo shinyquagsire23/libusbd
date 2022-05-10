@@ -169,8 +169,10 @@ uint8_t alt_IOUSBDeviceDescriptionGetClass(alt_IOUSBDeviceDescriptionRef ref);
 void alt_IOUSBDeviceDescriptionSetClass(alt_IOUSBDeviceDescriptionRef ref, UInt8 bClass);
 
 uint8_t alt_IOUSBDeviceDescriptionGetSubClass(alt_IOUSBDeviceDescriptionRef ref);
+void alt_IOUSBDeviceDescriptionSetSubClass(alt_IOUSBDeviceDescriptionRef devDesc, UInt8 val);
 
 uint8_t alt_IOUSBDeviceDescriptionGetProtocol(alt_IOUSBDeviceDescriptionRef ref);
+void alt_IOUSBDeviceDescriptionSetProtocol(alt_IOUSBDeviceDescriptionRef devDesc, UInt8 val);
 
 uint16_t alt_IOUSBDeviceDescriptionGetVendorID(alt_IOUSBDeviceDescriptionRef ref);
 
@@ -182,9 +184,15 @@ void alt_IOUSBDeviceDescriptionSetProductID(alt_IOUSBDeviceDescriptionRef devDes
 
 uint16_t alt_IOUSBDeviceDescriptionGetVersion(alt_IOUSBDeviceDescriptionRef ref);
 
+void alt_IOUSBDeviceDescriptionSetVersion(alt_IOUSBDeviceDescriptionRef devDesc, UInt16 val);
+
 CFStringRef alt_IOUSBDeviceDescriptionGetManufacturerString(alt_IOUSBDeviceDescriptionRef ref);
 
 CFStringRef alt_IOUSBDeviceDescriptionGetProductString(alt_IOUSBDeviceDescriptionRef ref);
+
+void alt_IOUSBDeviceDescriptionSetManufacturerString(alt_IOUSBDeviceDescriptionRef ref, CFStringRef val);
+
+void alt_IOUSBDeviceDescriptionSetProductString(alt_IOUSBDeviceDescriptionRef ref, CFStringRef val);
 
 CFStringRef alt_IOUSBDeviceDescriptionGetSerialString(alt_IOUSBDeviceDescriptionRef ref);
 

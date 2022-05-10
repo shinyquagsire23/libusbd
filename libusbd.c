@@ -23,11 +23,113 @@ int libusbd_free(libusbd_ctx_t* pCtx)
     if (!pCtx) {
         return LIBUSBD_INVALID_ARGUMENT;
     }
+    libusbd_set_manufacturer_str(pCtx, NULL);
+    libusbd_set_product_str(pCtx, NULL);
+    libusbd_set_serial_str(pCtx, NULL);
 
     libusbd_macos_free(pCtx);
 
     free(pCtx);
 
+    return LIBUSBD_SUCCESS;
+}
+
+int libusbd_set_vid(libusbd_ctx_t* pCtx, uint16_t val)
+{
+    pCtx->vid = val;
+    return LIBUSBD_SUCCESS;
+}
+
+int libusbd_set_pid(libusbd_ctx_t* pCtx, uint16_t val)
+{
+    pCtx->pid = val;
+    return LIBUSBD_SUCCESS;
+}
+
+int libusbd_set_version(libusbd_ctx_t* pCtx, uint16_t val)
+{
+    pCtx->did = val;
+    return LIBUSBD_SUCCESS;
+}
+
+int libusbd_set_class(libusbd_ctx_t* pCtx, uint8_t val)
+{
+    if (!pCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    pCtx->bClass = val;
+
+    return LIBUSBD_SUCCESS;
+}
+
+int libusbd_set_subclass(libusbd_ctx_t* pCtx, uint8_t val)
+{
+    if (!pCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    pCtx->bSubclass = val;
+
+    return LIBUSBD_SUCCESS;
+}
+
+int libusbd_set_protocol(libusbd_ctx_t* pCtx, uint8_t val)
+{
+    if (!pCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    pCtx->bProtocol = val;
+
+    return LIBUSBD_SUCCESS;
+}
+
+int libusbd_set_manufacturer_str(libusbd_ctx_t* pCtx, const char* pStr)
+{
+    if (pCtx->pManufacturerStr)
+        free(pCtx->pManufacturerStr);
+
+    if (!pStr)
+    {
+        pCtx->pManufacturerStr = NULL;
+        return LIBUSBD_SUCCESS;
+    }
+
+    pCtx->pManufacturerStr = malloc(strlen(pStr)+1);
+    strcpy(pCtx->pManufacturerStr, pStr);
+    return LIBUSBD_SUCCESS;
+}
+
+int libusbd_set_product_str(libusbd_ctx_t* pCtx, const char* pStr)
+{
+    if (pCtx->pProductStr)
+        free(pCtx->pProductStr);
+
+    if (!pStr)
+    {
+        pCtx->pProductStr = NULL;
+        return LIBUSBD_SUCCESS;
+    }
+
+    pCtx->pProductStr = malloc(strlen(pStr)+1);
+    strcpy(pCtx->pProductStr, pStr);
+    return LIBUSBD_SUCCESS;
+}
+
+int libusbd_set_serial_str(libusbd_ctx_t* pCtx, const char* pStr)
+{
+    if (pCtx->pSerialStr)
+        free(pCtx->pSerialStr);
+
+    if (!pStr)
+    {
+        pCtx->pSerialStr = NULL;
+        return LIBUSBD_SUCCESS;
+    }
+
+    pCtx->pSerialStr = malloc(strlen(pStr)+1);
+    strcpy(pCtx->pSerialStr, pStr);
     return LIBUSBD_SUCCESS;
 }
 
@@ -119,12 +221,45 @@ int libusbd_iface_set_protocol(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t v
     return LIBUSBD_SUCCESS;
 }
 
+int libusbd_iface_set_class_cmd_callback(libusbd_ctx_t* pCtx, uint8_t iface_num, libusbd_setup_callback_t func)
+{
+    if (!pCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    libusbd_iface_t* pIface = &pCtx->aInterfaces[iface_num];
+
+    libusbd_macos_iface_set_class_cmd_callback(pCtx, iface_num, func);
+
+    return LIBUSBD_SUCCESS;
+}
+
 int libusbd_ep_read(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, void* data, uint32_t len, uint64_t timeoutMs)
 {
-    return LIBUSBD_NOT_IMPLEMENTED;
+    return libusbd_macos_ep_read(pCtx, iface_num, ep, data, len, timeoutMs);
 }
 
 int libusbd_ep_write(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, void* data, uint32_t len, uint64_t timeoutMs)
 {
     return libusbd_macos_ep_write(pCtx, iface_num, ep, data, len, timeoutMs);
+}
+
+int libusbd_ep_stall(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep)
+{
+    return libusbd_macos_ep_stall(pCtx, iface_num, ep);
+}
+
+int libusbd_ep_abort(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep)
+{
+    return libusbd_macos_ep_abort(pCtx, iface_num, ep);
+}
+
+int libusbd_ep_get_buffer(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, void** pOut)
+{
+    return libusbd_macos_ep_get_buffer(pCtx, iface_num, ep, pOut);
+}
+
+int libusbd_ep_read_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep,uint32_t len)
+{
+    return libusbd_macos_ep_read_start(pCtx, iface_num, ep, len);
 }

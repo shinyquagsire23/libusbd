@@ -1,4 +1,4 @@
-TARGET = libusbd.dylib
+TARGET = example_gamepad
 
 DEBUG   ?= 0
 ARCH    ?= arm64
@@ -14,8 +14,8 @@ CC       := $(CLANG) -isysroot $(SYSROOT) -arch $(ARCH)
 #CFLAGS  = -O1 -Wall -g -fstack-protector-all -fsanitize=address -fsanitize=float-divide-by-zero -fsanitize=leak
 #LDFLAGS = -fsanitize=address -fsanitize=float-divide-by-zero -static-libsan -fsanitize=leak
 
-CFLAGS  = -O1 -Wall -g -fstack-protector-all
-LDFLAGS = -shared -Wl,-undefined -Wl,dynamic_lookup -lpthread
+CFLAGS  = -O1 -Wall -g -fstack-protector-all -isystem ../..
+LDFLAGS = -L../.. -lusbd
 
 ifneq ($(DEBUG),0)
 DEFINES += -DDEBUG=$(DEBUG)
@@ -23,7 +23,7 @@ endif
 
 FRAMEWORKS = -framework CoreFoundation -framework IOKit
 
-SOURCES = libusbd.c plat/macos/impl.c plat/macos/alt_IOUSBDeviceControllerLib.c
+SOURCES = main.c
 
 HEADERS = 
 
