@@ -27,4 +27,7 @@ int libusbd_macos_ep_abort(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep);
 int libusbd_macos_ep_get_buffer(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, void** pOut);
 int libusbd_macos_ep_read_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, uint32_t len);
 
+#define LIBUSBD_MACOS_ERR_NOTACTIVATED (0xE0000001)
+#define LIBUSBD_MACOS_ERR_TIMEOUT (0xE00002D6)
+
 #endif // _LIBUSBD_PLAT_MACOS_IMPL_H

@@ -799,39 +799,36 @@ int main(int argc, char *argv[])
     libusbd_set_product_str(ums_ctx, "Product");
     libusbd_set_serial_str(ums_ctx, "Serial");
 
+    // Allocate an interface
     libusbd_iface_alloc(ums_ctx, &ums_interface);
+
+    // All of the above is finalized, but the interface still needs building
     libusbd_config_finalize(ums_ctx);
 
-    libusbd_iface_set_class(ums_ctx, ums_interface, 8);
-    libusbd_iface_set_subclass(ums_ctx, ums_interface, 6);
-    libusbd_iface_set_protocol(ums_ctx, ums_interface, 80);
+    // Set up the interface and endpoints
+    libusbd_iface_set_class(ums_ctx, ums_interface, 8); // USB Mass Storage
+    libusbd_iface_set_subclass(ums_ctx, ums_interface, 6); // SCSI
+    libusbd_iface_set_protocol(ums_ctx, ums_interface, 80); // Bulk-Only
     libusbd_iface_set_class_cmd_callback(ums_ctx, ums_interface, ums_setup_callback);
 
-    int64_t testEp;
     libusbd_iface_add_endpoint(ums_ctx, ums_interface, USB_EPATTR_TTYPE_BULK, USB_EP_DIR_IN, 0x200, 0, 0, &ums_epBulkIn);
-    libusbd_iface_add_endpoint(ums_ctx, ums_interface, USB_EPATTR_TTYPE_BULK, USB_EP_DIR_OUT, 0x100, 0, 0, &ums_epBulkOut);
+    libusbd_iface_add_endpoint(ums_ctx, ums_interface, USB_EPATTR_TTYPE_BULK, USB_EP_DIR_OUT, 0x200, 1, 0, &ums_epBulkOut);
     libusbd_iface_finalize(ums_ctx, ums_interface);
 
-    int enum_waits = 0;
-    int idx = 0;
+    // After each iface is finalized, the device will enumerate and we can send/recv data
 
-    //while (!start_stuff) {
-    //    msleep(1);
-    //}
+    while (!start_stuff) {
+        msleep(1);
+    }
 
     while (!stop)
     {
         uint8_t tmp[0x200];
-        int ret = libusbd_ep_read(ums_ctx, ums_interface, ums_epBulkOut, tmp, 0x1F, 1);
-        if (ret > 0) {
+        int ret = libusbd_ep_read(ums_ctx, ums_interface, ums_epBulkOut, tmp, 0x1F, 100);
+        if (ret > 0 && !(ret & 0xF0000000)) {
             //printf("read %x\n", ret);
             ums_on_data_recv(tmp);
         }
-
-        uint8_t test = 1;
-        //ret = libusbd_ep_read(ums_ctx, ums_interface, ums_epBulkIn, &test, 1, 1);
-        //printf("write %x\n", ret);
-        //msleep(1);
     }
 
     libusbd_free(ums_ctx);
