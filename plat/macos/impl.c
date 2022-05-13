@@ -348,12 +348,15 @@ kern_return_t IOUSBDeviceInterface_ReleaseBuffer(libusbd_macos_ctx_t* pImplCtx, 
 void ep_callback(void* refcon, IOReturn result, uint64_t* arguments)
 {
     libusbd_macos_ep_t* pEp = (libusbd_macos_ep_t*)refcon;
-    pEp->ep_async_done = 1;
     pEp->last_read = (uint64_t)arguments;
+
+    if (pEp->last_read) {
+        pEp->ep_async_done = 1;
+    }
 
     // TODO: why does this function also return for WritePipe on another EP?
     //if (pEp->last_read)
-        //printf("libusbd macos: Read %x bytes %x (%x)\n", pEp->last_read, result, *(uint32_t*)pEp->buffer.data);
+    //    printf("libusbd macos: Read %x bytes %x (%x)\n", pEp->last_read, result, *(uint32_t*)pEp->buffer.data);
 }
 
 kern_return_t IOUSBDeviceInterface_ReadPipe(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, void* data, uint32_t len, uint64_t timeoutMs)
@@ -387,6 +390,8 @@ kern_return_t IOUSBDeviceInterface_ReadPipe(libusbd_macos_ctx_t* pImplCtx, uint8
             printf("libusbd macos: Unexpected error during IOUSBDeviceInterface_ReadPipe: %x (output %x)\n", ret, output[0]);
         return ret;
     }
+
+    msleep(0);
 
     uint64_t i = 0;
     for (i = 0; i < timeoutMs; i++) 

@@ -315,6 +315,7 @@ typedef struct __attribute__((__packed__))
 #define UMS_SETUPREQ_RESET  (0xFF)
 #define UMS_SETUPREQ_MAXLUN (0xFE)
 
+#define UMS_USB_BULKSIZE (0x200)
 #define UMS_BLOCKSIZE (0x200)
 
 #define UMS_BYTES_TO_LBA(bytes) ((u64)((u64)(bytes) / UMS_BLOCKSIZE))
@@ -355,8 +356,6 @@ static int msleep(long msec)
 
 static uint8_t currentHandledCommand = 0;
 static uint32_t currentTag = 0;
-
-static int _setup_hook_idx = -1;
 
 libusbd_ctx_t* ums_ctx = NULL;
 uint8_t ums_interface = 0;
@@ -613,7 +612,7 @@ static void ums_on_data_recv(void* pkt_data)
             sectors = getbe32(req.transferLen);
             lba = getbe64(req.lba);
             
-            printf("read 16 %016lx %08x\n", lba, sectors);
+            //printf("read 16 %016lx %08x\n", lba, sectors);
         }
 
         ums_lun_info_t* luninfo = ums_get_lun(hdr->lun);
@@ -649,7 +648,7 @@ static void ums_on_data_recv(void* pkt_data)
             goto ums_do_send;
         }
 
-        printf("file read %i (LUN %i) %llx %llx %llx %llx\n", ret, hdr->lun, lba+actual_sectors, luninfo->max_lba, actual_sectors, sectors);
+        printf("file read %i (LUN %i) %x %llx %x\n", ret, hdr->lun, lba, actual_sectors, sectors);
 
         for (int i = 0; i < actual_sectors; i++)
         {
@@ -662,6 +661,7 @@ static void ums_on_data_recv(void* pkt_data)
 
         if (actual_sectors != sectors)
         {
+            printf("UMS read - tried to read invalid sector!\n");
             ums_sense = SCSI_LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE;
             ums_status = UMS_STATUS_FAIL;
             free(f_readbuf);
@@ -708,9 +708,57 @@ static void ums_on_data_recv(void* pkt_data)
             goto ums_do_send;
         }
 
-        ums_sense = SCSI_INVALID_COMMAND;
-        ums_status = UMS_STATUS_FAIL;
-        goto ums_do_send;
+        void* f_readbuf = malloc(UMS_LBA_TO_BYTES(actual_sectors));
+        
+        fseeko(luninfo->file, UMS_LBA_TO_BYTES(lba), SEEK_SET);
+        printf("file write (LUN %i) %x %x %x\n", hdr->lun, lba, actual_sectors, sectors);
+
+        u64 bytes_written = 0;
+        for (int i = 0; i < actual_sectors; i++)
+        {
+            void* buf = (void*)((intptr_t)f_readbuf + (i * UMS_BLOCKSIZE));
+            ret = libusbd_ep_read(ums_ctx, ums_interface, ums_epBulkOut, buf, UMS_BLOCKSIZE, 1000);
+            libusbd_ep_abort(ums_ctx, ums_interface, ums_epBulkOut);
+            //printf("UMS write - read ret %i, %i residue %i\n", ret, i, ums_residue);
+
+            if (ret >= 0) {
+                ums_residue -= ret;
+                bytes_written += ret;
+
+                if (ret != UMS_BLOCKSIZE) {
+                    printf("UMS write - incomplete read\n");
+                    break;
+                }
+            }
+            else {
+                printf("UMS write - errored\n");
+                break;
+            }
+
+            int fret = fwrite(buf, 1, UMS_BLOCKSIZE, luninfo->file);
+            if (fret != UMS_BLOCKSIZE) {
+                printf("UMS write - incomplete file write %x\n", fret);
+                break;
+            }
+
+        }
+        free(f_readbuf);
+        
+
+        if (bytes_written != actual_sectors*UMS_BLOCKSIZE) {
+            printf("UMS write - bytes written is not expected value\n");
+            ums_sense = SCSI_WRITE_ERROR;
+            ums_status = UMS_STATUS_FAIL;
+            goto ums_do_send;
+        }
+
+        if (actual_sectors != sectors)
+        {
+            printf("UMS write - tried to write invalid sector!\n");
+            ums_sense = SCSI_LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE;
+            ums_status = UMS_STATUS_FAIL;
+            goto ums_do_send;
+        }
     }
     else if (scsiCmd == SCSI_ATA_PASSTHROUGH)
     {
@@ -765,25 +813,56 @@ int ums_setup_callback(libusbd_setup_callback_info_t* info)
     return 0;
 }
 
+void print_usage()
+{
+    printf("Usage: example_ums [-w] <path_to_disk.img>\n");
+    printf(" -w: Allow writing to image\n");
+}
+
 int main(int argc, char *argv[])
 {
-    if (argc < 2) {
-        printf("Usage: example_ums <path_to_disk.img>\n");
-        return -1;
+    int opt;
+    bool is_read_only = true;
+    while ((opt = getopt(argc, argv, "w")) != -1) {
+        switch (opt) {
+        case 'w': is_read_only = false; break;
+        default:
+            print_usage();
+            exit(EXIT_FAILURE);
+        }
     }
 
-    signal(SIGINT, inthand);
+    if (optind >= argc) {
+        print_usage();
+        exit(EXIT_FAILURE);
+    }
 
+    const char* pImgPath = argv[optind];
+
+    signal(SIGINT, inthand);
     ums_lun_info_t* luninfo = &g_LUNs[0];
 
-    uint64_t storage_size = 0x100000000; // 16MiB
+    luninfo->valid = true;
+    luninfo->read_only = is_read_only;
+    luninfo->file = fopen(pImgPath, is_read_only ? "rb" : "rb+");
+
+    if (!luninfo->file) {
+        printf("Error: File `%s` not found or could not be opened!\n", pImgPath);
+        exit(EXIT_FAILURE);
+    }
+
+    fseek(luninfo->file, 0L, SEEK_END);
+    uint64_t storage_size = ftell(luninfo->file);
+    fseek(luninfo->file, 0L, SEEK_SET);
 
     luninfo->max_lba = storage_size / UMS_BLOCKSIZE;
+    if (storage_size & (UMS_BLOCKSIZE-1)) {
+        luninfo->max_lba += 1; // If we're not block-aligned, round up
+    }
     if (!luninfo->max_lba)
         luninfo->max_lba = 0xFFFFFF;
-    luninfo->valid = true;
-    luninfo->read_only = true;
-    luninfo->file = fopen(argv[1], "rb");
+
+    printf("Starting UMS with image `%s`, max LBA 0x%x\n", pImgPath, luninfo->max_lba);
 
     libusbd_init(&ums_ctx);
 
@@ -811,16 +890,22 @@ int main(int argc, char *argv[])
     libusbd_iface_set_protocol(ums_ctx, ums_interface, 80); // Bulk-Only
     libusbd_iface_set_class_cmd_callback(ums_ctx, ums_interface, ums_setup_callback);
 
-    libusbd_iface_add_endpoint(ums_ctx, ums_interface, USB_EPATTR_TTYPE_BULK, USB_EP_DIR_IN, 0x200, 0, 0, &ums_epBulkIn);
-    libusbd_iface_add_endpoint(ums_ctx, ums_interface, USB_EPATTR_TTYPE_BULK, USB_EP_DIR_OUT, 0x200, 1, 0, &ums_epBulkOut);
+    libusbd_iface_add_endpoint(ums_ctx, ums_interface, USB_EPATTR_TTYPE_BULK, USB_EP_DIR_IN, UMS_USB_BULKSIZE, 0, 0, &ums_epBulkIn);
+    libusbd_iface_add_endpoint(ums_ctx, ums_interface, USB_EPATTR_TTYPE_BULK, USB_EP_DIR_OUT, UMS_USB_BULKSIZE, 1, 0, &ums_epBulkOut);
     libusbd_iface_finalize(ums_ctx, ums_interface);
+
+    printf("Waiting for enumeration...\n");
 
     // After each iface is finalized, the device will enumerate and we can send/recv data
 
-    while (!start_stuff) {
+    /*while (!start_stuff) {
         msleep(1);
-    }
+        if (stop) {
+            exit(0);
+        }
+    }*/
 
+    u64 idx = 0;
     while (!stop)
     {
         uint8_t tmp[0x200];
@@ -829,6 +914,16 @@ int main(int argc, char *argv[])
             //printf("read %x\n", ret);
             ums_on_data_recv(tmp);
         }
+
+        if (ret == LIBUSBD_NOT_ENUMERATED) {
+            msleep(100);
+        }
+
+        char speen[4] = {'/', '-', '\\', '|'};
+        printf("%c\r", speen[idx % 4]);
+        if (!ret || ret < 0)
+            fflush(stdout);
+        idx++;
     }
 
     libusbd_free(ums_ctx);
