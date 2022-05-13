@@ -1,7 +1,7 @@
 #ifndef _LIBUSBD_PLAT_MACOS_IMPL_H
 #define _LIBUSBD_PLAT_MACOS_IMPL_H
 
-#include "../../libusbd.h"
+#include "libusbd.h"
 
 typedef struct libusbd_macos_ctx_t libusbd_macos_ctx_t;
 
@@ -29,5 +29,6 @@ int libusbd_macos_ep_read_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t
 
 #define LIBUSBD_MACOS_ERR_NOTACTIVATED (0xE0000001)
 #define LIBUSBD_MACOS_ERR_TIMEOUT (0xE00002D6)
+#define LIBUSBD_MACOS_FAKERET_BADARGS (0xFF0002C2)
 
 #endif // _LIBUSBD_PLAT_MACOS_IMPL_H

@@ -1,5 +1,7 @@
 #include "libusbd.h"
 
+#include "libusbd_priv.h"
+
 #include <stdlib.h>
 #include <string.h>
 

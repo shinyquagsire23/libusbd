@@ -14,18 +14,9 @@
 
 #include "alt_IOUSBDeviceControllerLib.h"
 
-#define CONFIG_FILE_PATH		CFSTR("/System/Library/AppleUSBDevice/USBDeviceConfiguration.plist")
-
-static void __alt_IOUSBDeviceControllerRelease( CFTypeRef object );
 static alt_IOUSBDeviceControllerRef __deviceRefFromService(CFAllocatorRef allocator, io_service_t service);
 
-static void __alt_IOUSBDeviceDescriptionRelease( CFTypeRef object );
-static CFStringRef __alt_IOUSBDeviceDescriptionSerializeDebug(CFTypeRef cf);
-static pthread_once_t __deviceDescriptionTypeInit = PTHREAD_ONCE_INIT;
 #define DESTROY(thing) if(thing) CFRelease(thing)
-
-static alt_IOUSBDeviceDescriptionRef __alt_IOUSBDeviceDescriptionCreateFromDictionary(CFAllocatorRef allocator, CFMutableDictionaryRef descDict);
-static alt_IOUSBDeviceDescriptionRef __alt_IOUSBDeviceDescriptionCreateFromFile( CFAllocatorRef allocator, CFStringRef filePath );
 
 typedef struct __alt_IOUSBDeviceDescription
 	{
@@ -174,17 +165,6 @@ void alt_IOUSBDeviceDescriptionRelease( alt_IOUSBDeviceDescriptionRef desc )
 	DESTROY(desc->info);
 }
 
-static CFStringRef __alt_IOUSBDeviceDescriptionSerializeDebug(CFTypeRef cf)	// str with retain
-{
-	alt_IOUSBDeviceDescriptionRef desc = (alt_IOUSBDeviceDescriptionRef)cf;
-	
-	return CFStringCreateWithFormat(NULL, NULL, CFSTR("alt_IOUSBDeviceDescription: pid/vid/ver=%04x/%04x/%d class/sub/prot=%d/%d/%d Mfg:%@ Prod:%@ Ser:%@\n%@"), 
-									alt_IOUSBDeviceDescriptionGetProductID(desc), alt_IOUSBDeviceDescriptionGetVendorID(desc), alt_IOUSBDeviceDescriptionGetVersion(desc), 
-									alt_IOUSBDeviceDescriptionGetClass(desc), alt_IOUSBDeviceDescriptionGetSubClass(desc), alt_IOUSBDeviceDescriptionGetProtocol(desc), 
-									alt_IOUSBDeviceDescriptionGetManufacturerString(desc), alt_IOUSBDeviceDescriptionGetProductString(desc), alt_IOUSBDeviceDescriptionGetSerialString(desc),
-	desc->info);
-}
-
 alt_IOUSBDeviceDescriptionRef alt_IOUSBDeviceDescriptionCreate(CFAllocatorRef allocator)
 {
     alt_IOUSBDeviceDescriptionRef devdesc = NULL;
@@ -210,34 +190,6 @@ alt_IOUSBDeviceDescriptionRef alt_IOUSBDeviceDescriptionCreate(CFAllocatorRef al
 	CFRelease(configs);
 	return devdesc;
 }	
-
-alt_IOUSBDeviceDescriptionRef alt_IOUSBDeviceDescriptionCreateFromController(CFAllocatorRef allocator, alt_IOUSBDeviceControllerRef controllerRef)
-{
-	CFMutableDictionaryRef descDict;
-	alt_IOUSBDeviceDescriptionRef descRef = NULL;
-	
-	if((descDict = (CFMutableDictionaryRef)IORegistryEntryCreateCFProperty(controllerRef->deviceIOService, CFSTR("DeviceDescription"), kCFAllocatorDefault, 0)))
-	{
-		descRef = __alt_IOUSBDeviceDescriptionCreateFromDictionary(allocator, descDict);
-		CFRelease(descDict);
-	}
-	return descRef;
-}
-		
-static alt_IOUSBDeviceDescriptionRef __alt_IOUSBDeviceDescriptionCreateFromDictionary(CFAllocatorRef allocator, CFMutableDictionaryRef descDict)
-{
-	alt_IOUSBDeviceDescriptionRef descRef = NULL;
-	
-	if((descRef = alt_IOUSBDeviceDescriptionCreate(allocator)))
-	{
-		if(descDict != descRef->info)
-		{
-			CFRelease(descRef->info);
-			descRef->info = (CFMutableDictionaryRef)CFRetain(descDict);
-		}
-	}	
-	return descRef;
-}
 
 uint32_t __getDictNumber(alt_IOUSBDeviceDescriptionRef ref, CFStringRef key)
 {
@@ -393,72 +345,4 @@ int alt_IOUSBDeviceDescriptionAppendInterfaceToConfiguration(alt_IOUSBDeviceDesc
 	interfaces = (CFMutableArrayRef)CFDictionaryGetValue(theConfig, CFSTR("Interfaces"));
 	CFArrayAppendValue(interfaces, name);
 	return CFArrayGetCount(interfaces) - 1;
-}
-
-static alt_IOUSBDeviceDescriptionRef __alt_IOUSBDeviceDescriptionCreateFromFile( CFAllocatorRef allocator, CFStringRef filePath )
-{
-	alt_IOUSBDeviceDescriptionRef devDesc = NULL;
-
-	CFURLRef fileURL = CFURLCreateWithFileSystemPath( allocator, filePath, kCFURLPOSIXPathStyle, false );
-	if(fileURL)
-	{
-		CFDataRef resourceData = NULL;
-		SInt32 errorCode;
-		
-		CFURLCreateDataAndPropertiesFromResource(allocator, fileURL, &resourceData, NULL, NULL, &errorCode);
-		if(resourceData)
-		{
-			CFDictionaryRef allDescriptions;
-			allDescriptions = CFPropertyListCreateFromXMLData( allocator,resourceData,kCFPropertyListImmutable, NULL);
-			if(allDescriptions)
-			{
-				int rval;
-				char machineName[64];
-				size_t maxSize=sizeof(machineName);
-				CFMutableDictionaryRef thisDeviceDescription = NULL;
-				CFStringRef machineNameKey;
-				CFDictionaryRef devices;
-				
-				//find out the name of this machine
-				rval = sysctlbyname("hw.machine", machineName, &maxSize, NULL, 0);
-				if(rval != 0)
-					strncpy(machineName, "sysctl hw.machine failed", sizeof(machineName));
-
-				machineNameKey = CFStringCreateWithCString(kCFAllocatorDefault, (const char *)machineName, kCFStringEncodingASCII);
-				devices = CFDictionaryGetValue(allDescriptions, CFSTR("devices"));
-				if(!devices) //must be the old-school way...
-					thisDeviceDescription = (CFMutableDictionaryRef)CFDictionaryGetValue(allDescriptions, machineNameKey);
-				else
-				{
-					thisDeviceDescription = (CFMutableDictionaryRef)CFDictionaryGetValue(devices, machineNameKey);
-					if(!thisDeviceDescription) //can't find a config keyed to this machine...try to load the default
-						thisDeviceDescription = (CFMutableDictionaryRef)CFDictionaryGetValue(devices, CFSTR("unknownHardware"));
-					if(thisDeviceDescription)
-					{
-						//check if the configuration descriptor is actually a key into the list of stock configs
-						CFStringRef configName = CFDictionaryGetValue(thisDeviceDescription, CFSTR("ConfigurationDescriptors"));
-						if(CFGetTypeID(configName) == CFStringGetTypeID()) //yes, it's a string that is a key into the config dict
-						{
-							CFDictionaryRef configs = CFDictionaryGetValue(allDescriptions, CFSTR("configurations"));
-							CFDictionaryRef thisConfig = CFDictionaryGetValue(configs, configName);
-							CFDictionarySetValue(thisDeviceDescription, CFSTR("ConfigurationDescriptors"), thisConfig);
-						}
-					}
-				}
-				if(thisDeviceDescription)
-					devDesc = __alt_IOUSBDeviceDescriptionCreateFromDictionary(NULL, thisDeviceDescription);	
-				CFRelease(machineNameKey);
-				CFRelease(allDescriptions);
-			}
-			CFRelease(resourceData);
-		}
-		CFRelease(fileURL);
-	}
-	return devDesc;
-}
-
-
-alt_IOUSBDeviceDescriptionRef alt_IOUSBDeviceDescriptionCreateFromDefaults(CFAllocatorRef allocator) 
-{
-	return __alt_IOUSBDeviceDescriptionCreateFromFile(allocator, CONFIG_FILE_PATH);
 }

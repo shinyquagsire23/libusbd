@@ -14,7 +14,7 @@ CC       := $(CLANG) -isysroot $(SYSROOT) -arch $(ARCH)
 #CFLAGS  = -O1 -Wall -g -fstack-protector-all -fsanitize=address -fsanitize=float-divide-by-zero -fsanitize=leak
 #LDFLAGS = -fsanitize=address -fsanitize=float-divide-by-zero -static-libsan -fsanitize=leak
 
-CFLAGS  = -O1 -Wall -g -fstack-protector-all -isystem ../..
+CFLAGS  = -O1 -Wall -g -fstack-protector-all -isystem ../../include
 LDFLAGS = -L../.. -lusbd
 
 ifneq ($(DEBUG),0)

@@ -14,7 +14,7 @@ CC       := $(CLANG) -isysroot $(SYSROOT) -arch $(ARCH)
 #CFLAGS  = -O1 -Wall -g -fstack-protector-all -fsanitize=address -fsanitize=float-divide-by-zero -fsanitize=leak
 #LDFLAGS = -fsanitize=address -fsanitize=float-divide-by-zero -static-libsan -fsanitize=leak
 
-CFLAGS  = -O1 -Wall -g -fstack-protector-all
+CFLAGS  = -O1 -Wall -g -fstack-protector-all -I include/ -I src/
 LDFLAGS = -shared -Wl,-undefined -Wl,dynamic_lookup -lpthread
 
 ifneq ($(DEBUG),0)
@@ -23,9 +23,9 @@ endif
 
 FRAMEWORKS = -framework CoreFoundation -framework IOKit
 
-SOURCES = libusbd.c plat/macos/impl.c plat/macos/alt_IOUSBDeviceControllerLib.c
+SOURCES = src/libusbd.c src/plat/macos/impl.c src/plat/macos/alt_IOUSBDeviceControllerLib.c
 
-HEADERS = 
+HEADERS = include/libusbd.h src/libusbd_priv.h
 
 all: $(TARGET)
 

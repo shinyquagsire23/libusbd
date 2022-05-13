@@ -1,5 +1,7 @@
 #include "impl.h"
 
+#include "impl_priv.h"
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -10,76 +12,16 @@
 #include <mach/mach.h>
 
 #include <pthread.h>
+
+#include "libusbd_priv.h"
 //#include "IOUSBDeviceControllerLib.h"
 #include "alt_IOUSBDeviceControllerLib.h"
-
-typedef struct libusbd_macos_buffer_t
-{
-    void* data;
-    uint64_t size;
-    uint64_t token;
-} libusbd_macos_buffer_t;
-
-typedef struct libusbd_macos_ep_t
-{
-    uint64_t last_read;
-    uint64_t ep_async_done;
-    uint64_t maxPktSize;
-
-    libusbd_macos_buffer_t buffer;
-    IONotificationPortRef notification_port;
-    mach_port_t mnotification_port;
-} libusbd_macos_ep_t;
-
-typedef struct libusbd_macos_iface_t
-{
-    char* pName;
-    io_service_t service;
-    io_connect_t port;
-    
-    mach_port_t async_port;
-    IONotificationPortRef notification_port;
-    mach_port_t mnotification_port;
-    libusbd_macos_buffer_t setup_buffer;
-
-    libusbd_setup_callback_t setup_callback;
-    libusbd_setup_callback_info_t setup_callback_info;
-    int class_async_done;
-
-    uint8_t bNumEndpoints;
-    libusbd_macos_ep_t aEndpoints[16];
-} libusbd_macos_iface_t;
-
-typedef struct libusbd_macos_ctx_t
-{
-    io_service_t service_usbgadget;
-    io_connect_t port_usbgadget;
-    int configId;
-    uint32_t iface_rand32;
-
-    alt_IOUSBDeviceControllerRef controller;
-    alt_IOUSBDeviceDescriptionRef desc;
-
-    IONotificationPortRef notification_port;
-    mach_port_t mnotification_port;
-
-    libusbd_macos_iface_t aInterfaces[16];
-    
-} libusbd_macos_ctx_t;
 
 CFRunLoopRef _runLoop = NULL;
 
 static uint32_t rng_prev = 0;
 static uint32_t stupid_random_u32() {
     return rng_prev*1664525U + 1013904223U; // assuming complement-2 integers and non-signaling overflow
-}
-
-mach_port_t create_port()
-{
-    mach_port_t p = MACH_PORT_NULL;
-    mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &p);
-    mach_port_insert_right(mach_task_self(), p, p, MACH_MSG_TYPE_MAKE_SEND);
-    return p;
 }
 
 static int msleep(long msec)
@@ -211,7 +153,7 @@ kern_return_t IOUSBDeviceInterface_CreatePipe(libusbd_macos_ctx_t* pImplCtx, uin
 {
     libusbd_macos_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
 
-    uint64_t outputCount = 1;
+    uint32_t outputCount = 1;
     uint64_t output[1] = {0};
     uint64_t args[6] = {type, direction, maxPktSize, interval, unk, pImplCtx->configId};
 
@@ -227,8 +169,6 @@ kern_return_t IOUSBDeviceInterface_AppendStandardClassOrVendorDescriptor(libusbd
 {
     libusbd_macos_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
 
-    uint64_t outputCount = 1;
-    uint64_t output[1] = {0};
     uint64_t args[2] = {descType, unk};
 
     kern_return_t ret = IOConnectCallMethod(pIface->port, 6, args, 2, pDesc, descSz, NULL, NULL, NULL, NULL);
@@ -240,8 +180,6 @@ kern_return_t IOUSBDeviceInterface_AppendNonstandardClassOrVendorDescriptor(libu
 {
     libusbd_macos_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
 
-    uint64_t outputCount = 1;
-    uint64_t output[1] = {0};
     uint64_t args[2] = {descType, unk};
 
     kern_return_t ret = IOConnectCallMethod(pIface->port, 7, args, 2, pDesc, descSz, NULL, NULL, NULL, NULL);
@@ -251,7 +189,7 @@ kern_return_t IOUSBDeviceInterface_AppendNonstandardClassOrVendorDescriptor(libu
 
 kern_return_t IOUSBDeviceInterface_CompleteClassCommandCallback(libusbd_macos_iface_t* pIface, uint8_t iface_num, libusbd_setup_callback_info_t* info, uint64_t* arguments)
 {
-    uint64_t args[5] = {1,info->out_len,info->out_data,0,arguments[4]};
+    uint64_t args[5] = {1, info->out_len, (uint64_t)info->out_data, 0, arguments[4]};
     kern_return_t ret = IOConnectCallScalarMethod(pIface->port, 9, args, 5, NULL, NULL);
 
     //printf("complete %x\n", ret);
@@ -259,7 +197,7 @@ kern_return_t IOUSBDeviceInterface_CompleteClassCommandCallback(libusbd_macos_if
     return ret;
 }
 
-void test_callback(void* refcon, IOReturn result, uint64_t* arguments)
+void IOUSBDeviceInterface_ClassCommandCallback(void* refcon, IOReturn result, uint64_t* arguments)
 {
     libusbd_macos_iface_t* pIface = (libusbd_macos_iface_t*)refcon;
 
@@ -293,8 +231,8 @@ kern_return_t IOUSBDeviceInterface_SetClassCommandCallbacks(libusbd_macos_ctx_t*
 
     uint64_t asyncRef[8];
     asyncRef[kIOAsyncReservedIndex] = pIface->mnotification_port;
-    asyncRef[kIOAsyncCalloutFuncIndex] = test_callback; //(io_user_reference_t) callback;
-    asyncRef[kIOAsyncCalloutRefconIndex] = pIface;
+    asyncRef[kIOAsyncCalloutFuncIndex] = (uint64_t)IOUSBDeviceInterface_ClassCommandCallback;
+    asyncRef[kIOAsyncCalloutRefconIndex] = (uint64_t)pIface;
 
     pIface->class_async_done = 0;
     kern_return_t ret = IOConnectCallAsyncScalarMethod(pIface->port, 8, pIface->mnotification_port, asyncRef, kOSAsyncRef64Count, args, 3, NULL, NULL);
@@ -319,7 +257,7 @@ kern_return_t IOUSBDeviceInterface_CreateBuffer(libusbd_macos_ctx_t* pImplCtx, u
 {
     libusbd_macos_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
 
-    uint64_t outputCount = 3;
+    uint32_t outputCount = 3;
     uint64_t output[3] = {0};
     uint64_t args[1] = {bufferSz};
 
@@ -345,7 +283,7 @@ kern_return_t IOUSBDeviceInterface_ReleaseBuffer(libusbd_macos_ctx_t* pImplCtx, 
     return ret;
 }
 
-void ep_callback(void* refcon, IOReturn result, uint64_t* arguments)
+void IOUSBDeviceInterface_ReadPipeCallback(void* refcon, IOReturn result, uint64_t* arguments)
 {
     libusbd_macos_ep_t* pEp = (libusbd_macos_ep_t*)refcon;
     pEp->last_read = (uint64_t)arguments;
@@ -354,26 +292,26 @@ void ep_callback(void* refcon, IOReturn result, uint64_t* arguments)
         pEp->ep_async_done = 1;
     }
 
-    // TODO: why does this function also return for WritePipe on another EP?
     //if (pEp->last_read)
     //    printf("libusbd macos: Read %x bytes %x (%x)\n", pEp->last_read, result, *(uint32_t*)pEp->buffer.data);
 }
 
 kern_return_t IOUSBDeviceInterface_ReadPipe(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, void* data, uint32_t len, uint64_t timeoutMs)
 {
-    // TODO bounds
+    if (iface_num >= LIBUSBD_MAX_IFACES) return LIBUSBD_MACOS_FAKERET_BADARGS;
+
     libusbd_macos_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
     libusbd_macos_ep_t* pEp = &pIface->aEndpoints[pipe_id];
 
     libusbd_macos_buffer_t* pBuffer = &pEp->buffer;
     uint64_t args[4] = {pipe_id, pBuffer->token, len, timeoutMs};
-    uint64_t outputCount = 1;
+    uint32_t outputCount = 1;
     uint64_t output[1] = {0};
 
     uint64_t asyncRef[8];
     asyncRef[kIOAsyncReservedIndex] = pEp->mnotification_port;
-    asyncRef[kIOAsyncCalloutFuncIndex] = ep_callback; //(io_user_reference_t) callback;
-    asyncRef[kIOAsyncCalloutRefconIndex] = pEp;
+    asyncRef[kIOAsyncCalloutFuncIndex] = (uint64_t)IOUSBDeviceInterface_ReadPipeCallback;
+    asyncRef[kIOAsyncCalloutRefconIndex] = (uint64_t)pEp;
 
     pEp->ep_async_done = 0;
     kern_return_t ret = 0;
@@ -417,19 +355,20 @@ kern_return_t IOUSBDeviceInterface_ReadPipe(libusbd_macos_ctx_t* pImplCtx, uint8
 
 kern_return_t IOUSBDeviceInterface_ReadPipeStart(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, uint32_t len)
 {
-    // TODO bounds
+    if (iface_num >= LIBUSBD_MAX_IFACES) return LIBUSBD_MACOS_FAKERET_BADARGS;
+
     libusbd_macos_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
     libusbd_macos_ep_t* pEp = &pIface->aEndpoints[pipe_id];
 
     libusbd_macos_buffer_t* pBuffer = &pEp->buffer;
     uint64_t args[4] = {pipe_id, pBuffer->token, len, 10};
-    uint64_t outputCount = 1;
+    uint32_t outputCount = 1;
     uint64_t output[1];
 
     uint64_t asyncRef[8];
     asyncRef[kIOAsyncReservedIndex] = pEp->mnotification_port;
-    asyncRef[kIOAsyncCalloutFuncIndex] = ep_callback; //(io_user_reference_t) callback;
-    asyncRef[kIOAsyncCalloutRefconIndex] = pEp;
+    asyncRef[kIOAsyncCalloutFuncIndex] = (uint64_t)IOUSBDeviceInterface_ReadPipeCallback;
+    asyncRef[kIOAsyncCalloutRefconIndex] = (uint64_t)pEp;
 
     kern_return_t ret = IOConnectCallAsyncScalarMethod(pIface->port, 13, pEp->mnotification_port, asyncRef, kOSAsyncRef64Count, args, 4, output, &outputCount);
 
@@ -438,13 +377,14 @@ kern_return_t IOUSBDeviceInterface_ReadPipeStart(libusbd_macos_ctx_t* pImplCtx, 
 
 kern_return_t IOUSBDeviceInterface_WritePipe(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, void* data, uint32_t len, uint64_t timeoutMs)
 {
-    // TODO bounds
+    if (iface_num >= LIBUSBD_MAX_IFACES) return LIBUSBD_MACOS_FAKERET_BADARGS;
+
     libusbd_macos_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
     libusbd_macos_ep_t* pEp = &pIface->aEndpoints[pipe_id];
 
     libusbd_macos_buffer_t* pBuffer = &pEp->buffer;
     uint64_t args[4] = {pipe_id, pBuffer->token, len, timeoutMs};
-    uint64_t outputCount = 1;
+    uint32_t outputCount = 1;
     uint64_t output[1];
 
     if (data && pBuffer->data && len)
@@ -460,6 +400,8 @@ kern_return_t IOUSBDeviceInterface_WritePipe(libusbd_macos_ctx_t* pImplCtx, uint
 
 kern_return_t IOUSBDeviceInterface_StallPipe(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id)
 {
+    if (iface_num >= LIBUSBD_MAX_IFACES) return LIBUSBD_MACOS_FAKERET_BADARGS;
+
     libusbd_macos_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
 
     uint64_t args[1] = {pipe_id};
@@ -471,6 +413,8 @@ kern_return_t IOUSBDeviceInterface_StallPipe(libusbd_macos_ctx_t* pImplCtx, uint
 
 kern_return_t IOUSBDeviceInterface_AbortPipe(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id)
 {
+    if (iface_num >= LIBUSBD_MAX_IFACES) return LIBUSBD_MACOS_FAKERET_BADARGS;
+
     libusbd_macos_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
 
     uint64_t args[1] = {pipe_id};
@@ -482,10 +426,12 @@ kern_return_t IOUSBDeviceInterface_AbortPipe(libusbd_macos_ctx_t* pImplCtx, uint
 
 kern_return_t IOUSBDeviceInterface_GetPipeCurrentMaxPacketSize(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, uint64_t* pOut)
 {
+    if (iface_num >= LIBUSBD_MAX_IFACES) return LIBUSBD_MACOS_FAKERET_BADARGS;
+
     libusbd_macos_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
 
     uint64_t args[1] = {pipe_id};
-    uint64_t outputCount = 1;
+    uint32_t outputCount = 1;
     uint64_t output[1];
 
     kern_return_t ret = IOConnectCallScalarMethod(pIface->port, 17, args, 1, output, &outputCount);
@@ -498,6 +444,8 @@ kern_return_t IOUSBDeviceInterface_GetPipeCurrentMaxPacketSize(libusbd_macos_ctx
 
 kern_return_t IOUSBDeviceInterface_SetPipeProperty(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, uint32_t val)
 {
+    if (iface_num >= LIBUSBD_MAX_IFACES) return LIBUSBD_MACOS_FAKERET_BADARGS;
+
     libusbd_macos_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
 
     uint64_t args[2] = {pipe_id, val};
@@ -506,7 +454,6 @@ kern_return_t IOUSBDeviceInterface_SetPipeProperty(libusbd_macos_ctx_t* pImplCtx
 
     return ret;
 }
-
 
 int libusbd_macos_init(libusbd_ctx_t* pCtx)
 {
@@ -587,13 +534,13 @@ int libusbd_macos_init(libusbd_ctx_t* pCtx)
 
     alt_IOUSBDeviceDescriptionRemoveAllConfigurations(pImplCtx->desc);
 
-    pImplCtx->configId = alt_IOUSBDeviceDescriptionAppendConfiguration(pImplCtx->desc, CFSTR("libusbd"), 0xA0, 511);
+    pImplCtx->configId = alt_IOUSBDeviceDescriptionAppendConfiguration(pImplCtx->desc, CFSTR("libusbd"), 0xA0, 255);
     
     // Setup pkt source
     CFRunLoopSourceRef run_loop_source;
 
     // Create port to listen for kernel notifications on.
-    pImplCtx->notification_port = IONotificationPortCreate(kIOMasterPortDefault);
+    pImplCtx->notification_port = IONotificationPortCreate(kIOMainPortDefault);
     if (!pImplCtx->notification_port) {
         printf("libusbd macos: Error getting notification port.\n");
         return 0;
@@ -656,8 +603,6 @@ int libusbd_macos_free(libusbd_ctx_t* pCtx)
         //printf("close s_ret %x\n", s_ret);
 
         IOServiceClose(pIface->port);
-
-        mach_port_destroy(mach_task_self(), pIface->async_port);
 
         free(pIface->pName);
         pIface->pName = NULL;
@@ -787,6 +732,14 @@ int libusbd_macos_config_finalize(libusbd_ctx_t* pCtx)
 
 int libusbd_macos_iface_finalize(libusbd_ctx_t* pCtx, uint8_t iface_num)
 {
+    if (!pCtx || !pCtx->pMacosCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
     libusbd_macos_ctx_t* pImplCtx = pCtx->pMacosCtx;
     libusbd_macos_iface_t* pIface = &pImplCtx->aInterfaces[iface_num]; // TODO bounds
 
@@ -800,7 +753,7 @@ int libusbd_macos_iface_finalize(libusbd_ctx_t* pCtx, uint8_t iface_num)
         CFRunLoopSourceRef run_loop_source;
 
         // Create port to listen for kernel notifications on.
-        pEp->notification_port = IONotificationPortCreate(kIOMasterPortDefault);
+        pEp->notification_port = IONotificationPortCreate(kIOMainPortDefault);
         if (!pEp->notification_port) {
             printf("libusbd macos: Error getting notification port.\n");
             return 0;
@@ -834,6 +787,14 @@ int libusbd_macos_iface_finalize(libusbd_ctx_t* pCtx, uint8_t iface_num)
 
 int libusbd_macos_iface_standard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, uint8_t* pDesc, uint64_t descSz)
 {
+    if (!pCtx || !pCtx->pMacosCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
     libusbd_macos_ctx_t* pImplCtx = pCtx->pMacosCtx;
 
     IOUSBDeviceInterface_AppendStandardClassOrVendorDescriptor(pImplCtx, iface_num, descType, unk, pDesc, descSz); // TODO error check
@@ -842,6 +803,14 @@ int libusbd_macos_iface_standard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num, ui
 
 int libusbd_macos_iface_nonstandard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, uint8_t* pDesc, uint64_t descSz)
 {
+    if (!pCtx || !pCtx->pMacosCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
     libusbd_macos_ctx_t* pImplCtx = pCtx->pMacosCtx;
 
     IOUSBDeviceInterface_AppendNonstandardClassOrVendorDescriptor(pImplCtx, iface_num, descType, unk, pDesc, descSz); // TODO error check
@@ -850,6 +819,14 @@ int libusbd_macos_iface_nonstandard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num,
 
 int libusbd_macos_iface_add_endpoint(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t type, uint8_t direction, uint32_t maxPktSize, uint8_t interval, uint64_t unk, uint64_t* pEpOut)
 {
+    if (!pCtx || !pCtx->pMacosCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
     libusbd_macos_ctx_t* pImplCtx = pCtx->pMacosCtx;
 
     libusbd_macos_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
@@ -868,7 +845,7 @@ int libusbd_macos_iface_add_endpoint(libusbd_ctx_t* pCtx, uint8_t iface_num, uin
 
 int libusbd_macos_iface_alloc(libusbd_ctx_t* pCtx)
 {
-    if (!pCtx) {
+    if (!pCtx || !pCtx->pMacosCtx) {
         return LIBUSBD_INVALID_ARGUMENT;
     }
 
@@ -879,7 +856,7 @@ int libusbd_macos_iface_alloc(libusbd_ctx_t* pCtx)
     CFRunLoopSourceRef run_loop_source;
 
     // Create port to listen for kernel notifications on.
-    pIface->notification_port = IONotificationPortCreate(kIOMasterPortDefault);
+    pIface->notification_port = IONotificationPortCreate(kIOMainPortDefault);
     if (!pIface->notification_port) {
         printf("libusbd macos: Error getting notification port.\n");
         return 0;
@@ -902,8 +879,6 @@ int libusbd_macos_iface_alloc(libusbd_ctx_t* pCtx)
     // Add the notification port and timer to the run loop.
     CFRunLoopAddSource(_runLoop, run_loop_source, kCFRunLoopDefaultMode);
 
-    //pIface->async_port = create_port();
-
     // We have to include a random element, otherwise we might connect to a port which is about to
     // be replaced.
     pIface->pName = malloc(0x80);
@@ -917,7 +892,11 @@ int libusbd_macos_iface_alloc(libusbd_ctx_t* pCtx)
 
 int libusbd_macos_iface_set_class(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t val)
 {
-    if (!pCtx) {
+    if (!pCtx || !pCtx->pMacosCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
         return LIBUSBD_INVALID_ARGUMENT;
     }
 
@@ -930,7 +909,11 @@ int libusbd_macos_iface_set_class(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_
 
 int libusbd_macos_iface_set_subclass(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t val)
 {
-    if (!pCtx) {
+    if (!pCtx || !pCtx->pMacosCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
         return LIBUSBD_INVALID_ARGUMENT;
     }
 
@@ -943,7 +926,11 @@ int libusbd_macos_iface_set_subclass(libusbd_ctx_t* pCtx, uint8_t iface_num, uin
 
 int libusbd_macos_iface_set_protocol(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t val)
 {
-    if (!pCtx) {
+    if (!pCtx || !pCtx->pMacosCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
         return LIBUSBD_INVALID_ARGUMENT;
     }
 
@@ -956,7 +943,11 @@ int libusbd_macos_iface_set_protocol(libusbd_ctx_t* pCtx, uint8_t iface_num, uin
 
 int libusbd_macos_iface_set_class_cmd_callback(libusbd_ctx_t* pCtx, uint8_t iface_num, libusbd_setup_callback_t func)
 {
-    if (!pCtx) {
+    if (!pCtx || !pCtx->pMacosCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
         return LIBUSBD_INVALID_ARGUMENT;
     }
 
@@ -970,7 +961,11 @@ int libusbd_macos_iface_set_class_cmd_callback(libusbd_ctx_t* pCtx, uint8_t ifac
 
 int libusbd_macos_ep_read(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, void* data, uint32_t len, uint64_t timeoutMs)
 {
-    if (!pCtx) {
+    if (!pCtx || !pCtx->pMacosCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
         return LIBUSBD_INVALID_ARGUMENT;
     }
 
@@ -997,7 +992,11 @@ int libusbd_macos_ep_read(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, v
 
 int libusbd_macos_ep_write(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, void* data, uint32_t len, uint64_t timeoutMs)
 {
-    if (!pCtx) {
+    if (!pCtx || !pCtx->pMacosCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
         return LIBUSBD_INVALID_ARGUMENT;
     }
 
@@ -1023,7 +1022,11 @@ int libusbd_macos_ep_write(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, 
 
 int libusbd_macos_ep_stall(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep)
 {
-    if (!pCtx) {
+    if (!pCtx || !pCtx->pMacosCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
         return LIBUSBD_INVALID_ARGUMENT;
     }
 
@@ -1036,7 +1039,11 @@ int libusbd_macos_ep_stall(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep)
 
 int libusbd_macos_ep_abort(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep)
 {
-    if (!pCtx) {
+    if (!pCtx || !pCtx->pMacosCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
         return LIBUSBD_INVALID_ARGUMENT;
     }
 
@@ -1049,7 +1056,11 @@ int libusbd_macos_ep_abort(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep)
 
 int libusbd_macos_ep_get_buffer(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, void** pOut)
 {
-    if (!pCtx) {
+    if (!pCtx || !pCtx->pMacosCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
         return LIBUSBD_INVALID_ARGUMENT;
     }
 
@@ -1064,7 +1075,11 @@ int libusbd_macos_ep_get_buffer(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t
 
 int libusbd_macos_ep_read_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, uint32_t len)
 {
-    if (!pCtx) {
+    if (!pCtx || !pCtx->pMacosCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
         return LIBUSBD_INVALID_ARGUMENT;
     }
 
