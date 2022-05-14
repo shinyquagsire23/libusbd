@@ -9,8 +9,9 @@
 
 int libusbd_init(libusbd_ctx_t** pCtxOut)
 {
-    if (!pCtxOut)
+    if (!pCtxOut) {
         return LIBUSBD_INVALID_ARGUMENT;
+    }
 
     *pCtxOut = malloc(sizeof(libusbd_ctx_t));
     memset(*pCtxOut, 0, sizeof(**pCtxOut));
@@ -31,6 +32,8 @@ int libusbd_free(libusbd_ctx_t* pCtx)
 
     libusbd_macos_free(pCtx);
 
+    memset(pCtx, 0, sizeof(*pCtx));
+
     free(pCtx);
 
     return LIBUSBD_SUCCESS;
@@ -38,18 +41,34 @@ int libusbd_free(libusbd_ctx_t* pCtx)
 
 int libusbd_set_vid(libusbd_ctx_t* pCtx, uint16_t val)
 {
+    if (!pCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
     pCtx->vid = val;
     return LIBUSBD_SUCCESS;
 }
 
 int libusbd_set_pid(libusbd_ctx_t* pCtx, uint16_t val)
 {
+    if (!pCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
     pCtx->pid = val;
     return LIBUSBD_SUCCESS;
 }
 
 int libusbd_set_version(libusbd_ctx_t* pCtx, uint16_t val)
 {
+    if (!pCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (pCtx->finalized) {
+        return LIBUSBD_ALREADY_FINALIZED;
+    }
+
     pCtx->did = val;
     return LIBUSBD_SUCCESS;
 }
@@ -58,6 +77,10 @@ int libusbd_set_class(libusbd_ctx_t* pCtx, uint8_t val)
 {
     if (!pCtx) {
         return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (pCtx->finalized) {
+        return LIBUSBD_ALREADY_FINALIZED;
     }
 
     pCtx->bClass = val;
@@ -71,6 +94,10 @@ int libusbd_set_subclass(libusbd_ctx_t* pCtx, uint8_t val)
         return LIBUSBD_INVALID_ARGUMENT;
     }
 
+    if (pCtx->finalized) {
+        return LIBUSBD_ALREADY_FINALIZED;
+    }
+
     pCtx->bSubclass = val;
 
     return LIBUSBD_SUCCESS;
@@ -82,6 +109,10 @@ int libusbd_set_protocol(libusbd_ctx_t* pCtx, uint8_t val)
         return LIBUSBD_INVALID_ARGUMENT;
     }
 
+    if (pCtx->finalized) {
+        return LIBUSBD_ALREADY_FINALIZED;
+    }
+
     pCtx->bProtocol = val;
 
     return LIBUSBD_SUCCESS;
@@ -89,13 +120,22 @@ int libusbd_set_protocol(libusbd_ctx_t* pCtx, uint8_t val)
 
 int libusbd_set_manufacturer_str(libusbd_ctx_t* pCtx, const char* pStr)
 {
-    if (pCtx->pManufacturerStr)
+    if (!pCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (pCtx->pManufacturerStr) {
         free(pCtx->pManufacturerStr);
+    }
 
     if (!pStr)
     {
         pCtx->pManufacturerStr = NULL;
         return LIBUSBD_SUCCESS;
+    }
+
+    if (pCtx->finalized) {
+        return LIBUSBD_ALREADY_FINALIZED;
     }
 
     pCtx->pManufacturerStr = malloc(strlen(pStr)+1);
@@ -105,13 +145,22 @@ int libusbd_set_manufacturer_str(libusbd_ctx_t* pCtx, const char* pStr)
 
 int libusbd_set_product_str(libusbd_ctx_t* pCtx, const char* pStr)
 {
-    if (pCtx->pProductStr)
+    if (!pCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (pCtx->pProductStr) {
         free(pCtx->pProductStr);
+    }
 
     if (!pStr)
     {
         pCtx->pProductStr = NULL;
         return LIBUSBD_SUCCESS;
+    }
+
+    if (pCtx->finalized) {
+        return LIBUSBD_ALREADY_FINALIZED;
     }
 
     pCtx->pProductStr = malloc(strlen(pStr)+1);
@@ -121,13 +170,22 @@ int libusbd_set_product_str(libusbd_ctx_t* pCtx, const char* pStr)
 
 int libusbd_set_serial_str(libusbd_ctx_t* pCtx, const char* pStr)
 {
-    if (pCtx->pSerialStr)
+    if (!pCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (pCtx->pSerialStr) {
         free(pCtx->pSerialStr);
+    }
 
     if (!pStr)
     {
         pCtx->pSerialStr = NULL;
         return LIBUSBD_SUCCESS;
+    }
+
+    if (pCtx->finalized) {
+        return LIBUSBD_ALREADY_FINALIZED;
     }
 
     pCtx->pSerialStr = malloc(strlen(pStr)+1);
@@ -137,20 +195,46 @@ int libusbd_set_serial_str(libusbd_ctx_t* pCtx, const char* pStr)
 
 int libusbd_config_finalize(libusbd_ctx_t* pCtx)
 {
-    return libusbd_macos_config_finalize(pCtx);
-}
-
-int libusbd_iface_alloc(libusbd_ctx_t* pCtx, uint8_t* pOut)
-{
     if (!pCtx) {
         return LIBUSBD_INVALID_ARGUMENT;
     }
 
-    libusbd_macos_iface_alloc(pCtx);
+    if (pCtx->finalized) {
+        return LIBUSBD_ALREADY_FINALIZED;
+    }
+
+    int ret = libusbd_macos_config_finalize(pCtx);
+
+    if (!ret) {
+        pCtx->finalized = true;
+    }
+
+    return ret;
+}
+
+int libusbd_iface_alloc(libusbd_ctx_t* pCtx, uint8_t* pOut)
+{
+    int ret;
+
+    if (!pCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (pCtx->finalized) {
+        return LIBUSBD_ALREADY_FINALIZED;
+    }
+
+    if (pCtx->bNumInterfaces >= LIBUSBD_MAX_IFACES) {
+        return LIBUSBD_RESOURCE_LIMIT_REACHED;
+    }
+
+    if ((ret = libusbd_macos_iface_alloc(pCtx)))
+        return ret;
 
     // TODO oob
-    if (pOut)
+    if (pOut) {
         *pOut = pCtx->bNumInterfaces++;
+    }
 
     return LIBUSBD_SUCCESS;
 }
@@ -162,20 +246,17 @@ int libusbd_iface_finalize(libusbd_ctx_t* pCtx, uint8_t iface_num)
 
 int libusbd_iface_standard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, uint8_t* pDesc, uint64_t descSz)
 {
-    libusbd_macos_iface_standard_desc(pCtx, iface_num, descType, unk, pDesc, descSz); // TODO error check
-    return LIBUSBD_SUCCESS;
+    return libusbd_macos_iface_standard_desc(pCtx, iface_num, descType, unk, pDesc, descSz);
 }
 
 int libusbd_iface_nonstandard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, uint8_t* pDesc, uint64_t descSz)
 {
-    libusbd_macos_iface_nonstandard_desc(pCtx, iface_num, descType, unk, pDesc, descSz); // TODO error check
-    return LIBUSBD_SUCCESS;
+    return libusbd_macos_iface_nonstandard_desc(pCtx, iface_num, descType, unk, pDesc, descSz);
 }
 
 int libusbd_iface_add_endpoint(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t type, uint8_t direction, uint32_t maxPktSize, uint8_t interval, uint64_t unk, uint64_t* pEpOut)
 {
-    libusbd_macos_iface_add_endpoint(pCtx, iface_num, type, direction, maxPktSize, interval, unk, pEpOut);
-    return LIBUSBD_SUCCESS;
+    return libusbd_macos_iface_add_endpoint(pCtx, iface_num, type, direction, maxPktSize, interval, unk, pEpOut);
 }
 
 int libusbd_iface_set_class(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t val)
@@ -184,7 +265,10 @@ int libusbd_iface_set_class(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t val)
         return LIBUSBD_INVALID_ARGUMENT;
     }
 
-    // TODO oob
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
     libusbd_iface_t* pIface = &pCtx->aInterfaces[iface_num];
 
     pIface->bClass = val;
@@ -199,7 +283,10 @@ int libusbd_iface_set_subclass(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t v
         return LIBUSBD_INVALID_ARGUMENT;
     }
 
-    // TODO oob
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
     libusbd_iface_t* pIface = &pCtx->aInterfaces[iface_num];
 
     pIface->bSubclass = val;
@@ -214,7 +301,10 @@ int libusbd_iface_set_protocol(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t v
         return LIBUSBD_INVALID_ARGUMENT;
     }
 
-    // TODO oob
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
     libusbd_iface_t* pIface = &pCtx->aInterfaces[iface_num];
 
     pIface->bProtocol = val;
@@ -226,6 +316,10 @@ int libusbd_iface_set_protocol(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t v
 int libusbd_iface_set_class_cmd_callback(libusbd_ctx_t* pCtx, uint8_t iface_num, libusbd_setup_callback_t func)
 {
     if (!pCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
         return LIBUSBD_INVALID_ARGUMENT;
     }
 

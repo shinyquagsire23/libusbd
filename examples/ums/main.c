@@ -248,6 +248,8 @@ typedef struct __attribute__((__packed__))
     uint8_t extQualifier;
     uint8_t fieldReplacableUnitCode;
     uint8_t specific;
+    uint16_t fieldPointer;
+    uint16_t reserved;
 } ScsiRequestSenseResponse;
 
 #define SCSI_RESPONSECODE_INVALID    (BIT(7))
@@ -289,6 +291,7 @@ typedef struct __attribute__((__packed__))
 #define SCSI_READ                   (0x28)
 #define SCSI_READ16                 (0x88)
 #define SCSI_WRITE                  (0x2A)
+#define SCSI_SYNC_CACHE             (0x35)
 #define SCSI_READCAPACITY16         (0x9E)
 #define SCSI_ATA_PASSTHROUGH        (0x85)
 
@@ -317,6 +320,7 @@ typedef struct __attribute__((__packed__))
 
 #define UMS_USB_BULKSIZE (0x200)
 #define UMS_BLOCKSIZE (0x200)
+#define UMS_WRITE_TIMEOUT (50)
 
 #define UMS_BYTES_TO_LBA(bytes) ((u64)((u64)(bytes) / UMS_BLOCKSIZE))
 #define UMS_LBA_TO_BYTES(lba)   ((u64)((u64)(lba) * UMS_BLOCKSIZE))
@@ -361,6 +365,8 @@ libusbd_ctx_t* ums_ctx = NULL;
 uint8_t ums_interface = 0;
 uint64_t ums_epBulkOut = 0;
 uint64_t ums_epBulkIn = 0;
+uint8_t ums_readBuf[UMS_BLOCKSIZE];
+uint8_t ums_writeBuf[UMS_BLOCKSIZE];
 
 typedef struct ums_lun_info_t
 {
@@ -395,7 +401,7 @@ void ums_send_status(uint32_t tag)
         .status = ums_status,
     };
 
-    libusbd_ep_write(ums_ctx, ums_interface, ums_epBulkIn, (void*)&okResp, sizeof(okResp), -1);
+    libusbd_ep_write(ums_ctx, ums_interface, ums_epBulkIn, (void*)&okResp, sizeof(okResp), UMS_WRITE_TIMEOUT);
 }
 
 static void ums_on_data_recv(void* pkt_data)
@@ -403,8 +409,10 @@ static void ums_on_data_recv(void* pkt_data)
     int ret = 0;
 
     UmsPacketHeader* hdr = (UmsPacketHeader*)pkt_data;
-    if (hdr->magic != UMS_IN_MAGIC)
+    if (hdr->magic != UMS_IN_MAGIC) {
         printf("ums: malformed magic! got %08x, expected %08x\n", hdr->magic, UMS_IN_MAGIC);
+        return;
+    }
 
     ums_sense = SCSI_NO_SENSE;
     ums_status = UMS_STATUS_OK;
@@ -449,10 +457,13 @@ static void ums_on_data_recv(void* pkt_data)
             strncpy(resp.serial,  "libusbd",    sizeof(resp.serial));
         }
 
+        //printf("%x %x %x\n", allocLen, sizeof(resp), ums_residue);
+
         size_t transferLen = (allocLen < sizeof(resp) ? allocLen : sizeof(resp));
-        ret = libusbd_ep_write(ums_ctx, ums_interface, ums_epBulkIn, &resp, transferLen, -1);
+        ret = libusbd_ep_write(ums_ctx, ums_interface, ums_epBulkIn, &resp, transferLen, UMS_WRITE_TIMEOUT);
         if (ret >= 0)
             ums_residue -= ret;
+        //printf("%x\n", ums_residue);
 
         ums_status = UMS_STATUS_OK;
     }
@@ -474,9 +485,14 @@ static void ums_on_data_recv(void* pkt_data)
         resp.extCode = ((ums_sense) >> 8) & 0xFF;
         resp.extQualifier = ((ums_sense) >> 0) & 0xFF;
 
-        ret = libusbd_ep_write(ums_ctx, ums_interface, ums_epBulkIn, &resp, sizeof(resp), -1);
+        
+
+        size_t transferLen = (ums_residue < sizeof(resp) ? ums_residue : sizeof(resp));
+        //printf("%x %x %x\n", sizeof(resp), ums_residue, transferLen);
+        ret = libusbd_ep_write(ums_ctx, ums_interface, ums_epBulkIn, &resp, transferLen, UMS_WRITE_TIMEOUT);
         if (ret >= 0)
             ums_residue -= ret;
+        //printf("%x\n", ums_residue);
 
         ums_status = UMS_STATUS_OK;
     }
@@ -502,7 +518,8 @@ static void ums_on_data_recv(void* pkt_data)
             putbe32(resp.lbaSize, luninfo->max_lba - 1);
         putbe32(resp.blockSize, UMS_BLOCKSIZE);
 
-        ret = libusbd_ep_write(ums_ctx, ums_interface, ums_epBulkIn, &resp, sizeof(resp), -1);
+        size_t transferLen = (ums_residue < sizeof(resp) ? ums_residue : sizeof(resp));
+        ret = libusbd_ep_write(ums_ctx, ums_interface, ums_epBulkIn, &resp, transferLen, UMS_WRITE_TIMEOUT);
         if (ret >= 0)
             ums_residue -= ret;
 
@@ -523,7 +540,8 @@ static void ums_on_data_recv(void* pkt_data)
         resp.desc.blockSize[0] = UMS_BLOCKSIZE >> 16; // be24
         resp.desc.descriptorCode = 0b10; // formatted media
 
-        libusbd_ep_write(ums_ctx, ums_interface, ums_epBulkIn, &resp, sizeof(resp), -1);
+        size_t transferLen = (ums_residue < sizeof(resp) ? ums_residue : sizeof(resp));
+        ret = libusbd_ep_write(ums_ctx, ums_interface, ums_epBulkIn, &resp, transferLen, UMS_WRITE_TIMEOUT);
         if (ret >= 0)
             ums_residue -= ret;
         //usbd_ep_idle(ums_epBulkIn);
@@ -582,10 +600,13 @@ static void ums_on_data_recv(void* pkt_data)
             page->hdr.pageLength = sizeof(ScsiInfoExceptionsControlPage) - sizeof(ScsiModePageHeader);
         }
 
-        libusbd_ep_write(ums_ctx, ums_interface, ums_epBulkIn, outPacket, packetSize, -1);
+        //printf("%x %x\n", packetSize, ums_residue);
+        if (packetSize > ums_residue)
+            packetSize = ums_residue;
+        ret = libusbd_ep_write(ums_ctx, ums_interface, ums_epBulkIn, outPacket, packetSize, UMS_WRITE_TIMEOUT);
         if (ret >= 0)
             ums_residue -= ret;
-        //usbd_ep_idle(ums_epBulkIn);
+        
         ums_status = UMS_STATUS_OK;
     }
     else if (scsiCmd == SCSI_READ || scsiCmd == SCSI_READ16)
@@ -637,38 +658,50 @@ static void ums_on_data_recv(void* pkt_data)
             actual_sectors = luninfo->max_lba - lba;
         }
 
-        void* f_readbuf = malloc(UMS_LBA_TO_BYTES(actual_sectors));
         fseeko(luninfo->file, UMS_LBA_TO_BYTES(lba), SEEK_SET);
-        int ret = fread(f_readbuf, 1, UMS_LBA_TO_BYTES(actual_sectors), luninfo->file);
-        if (ret != UMS_LBA_TO_BYTES(actual_sectors))
-        {
-            printf("file read failed! %i (LUN %i)\n", ret, hdr->lun);
-            ums_sense = SCSI_UNRECOVERED_READ_ERROR;
-            ums_status = UMS_STATUS_FAIL;
-            goto ums_do_send;
-        }
+        
 
         printf("file read %i (LUN %i) %x %llx %x\n", ret, hdr->lun, lba, actual_sectors, sectors);
 
+        void* buf;
+        libusbd_ep_get_buffer(ums_ctx, ums_interface, ums_epBulkIn, &buf);
+        for (int i = 0; i < actual_sectors; i++)
+        {
+            int ret = fread(buf, 1, UMS_BLOCKSIZE, luninfo->file);
+            if (ret != UMS_BLOCKSIZE)
+            {
+                printf("file read failed! %i (LUN %i)\n", ret, hdr->lun);
+                ums_sense = SCSI_UNRECOVERED_READ_ERROR;
+                ums_status = UMS_STATUS_FAIL;
+                goto ums_do_send;
+            }
+
+            ret = libusbd_ep_write(ums_ctx, ums_interface, ums_epBulkIn, buf, UMS_BLOCKSIZE, UMS_WRITE_TIMEOUT);
+            //printf("write ret %i, %i\n", ret, i);
+            if (ret >= 0)
+                ums_residue -= ret;
+            else
+                break;
+        }
+
+#if 0
         for (int i = 0; i < actual_sectors; i++)
         {
             void* buf = (void*)((intptr_t)f_readbuf + (i * UMS_BLOCKSIZE));
-            ret = libusbd_ep_write(ums_ctx, ums_interface, ums_epBulkIn, buf, UMS_BLOCKSIZE, 0);
+            ret = libusbd_ep_write(ums_ctx, ums_interface, ums_epBulkIn, buf, UMS_BLOCKSIZE, UMS_WRITE_TIMEOUT);
             //printf("write ret %i, %i\n", ret, i);
             if (ret >= 0)
                 ums_residue -= ret;
         }
+#endif
 
         if (actual_sectors != sectors)
         {
             printf("UMS read - tried to read invalid sector!\n");
             ums_sense = SCSI_LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE;
             ums_status = UMS_STATUS_FAIL;
-            free(f_readbuf);
             goto ums_do_send;
         }
-
-        free(f_readbuf);
 
     }
     else if (scsiCmd == SCSI_WRITE)
@@ -707,18 +740,22 @@ static void ums_on_data_recv(void* pkt_data)
             ums_status = UMS_STATUS_FAIL;
             goto ums_do_send;
         }
-
-        void* f_readbuf = malloc(UMS_LBA_TO_BYTES(actual_sectors));
         
         fseeko(luninfo->file, UMS_LBA_TO_BYTES(lba), SEEK_SET);
         printf("file write (LUN %i) %x %x %x\n", hdr->lun, lba, actual_sectors, sectors);
 
+        void* buf;
+        libusbd_ep_get_buffer(ums_ctx, ums_interface, ums_epBulkOut, &buf);
+
         u64 bytes_written = 0;
         for (int i = 0; i < actual_sectors; i++)
         {
-            void* buf = (void*)((intptr_t)f_readbuf + (i * UMS_BLOCKSIZE));
-            ret = libusbd_ep_read(ums_ctx, ums_interface, ums_epBulkOut, buf, UMS_BLOCKSIZE, 1000);
-            libusbd_ep_abort(ums_ctx, ums_interface, ums_epBulkOut);
+            for (int j = 0; j < 50; j++) {
+                ret = libusbd_ep_read(ums_ctx, ums_interface, ums_epBulkOut, buf, UMS_BLOCKSIZE, UMS_WRITE_TIMEOUT);
+                libusbd_ep_abort(ums_ctx, ums_interface, ums_epBulkOut);
+                if (!ret) continue;
+                break;
+            }
             //printf("UMS write - read ret %i, %i residue %i\n", ret, i, ums_residue);
 
             if (ret >= 0) {
@@ -726,7 +763,7 @@ static void ums_on_data_recv(void* pkt_data)
                 bytes_written += ret;
 
                 if (ret != UMS_BLOCKSIZE) {
-                    printf("UMS write - incomplete read\n");
+                    printf("UMS write - incomplete read of %i bytes (%i)\n", ret, i);
                     break;
                 }
             }
@@ -742,7 +779,6 @@ static void ums_on_data_recv(void* pkt_data)
             }
 
         }
-        free(f_readbuf);
         
 
         if (bytes_written != actual_sectors*UMS_BLOCKSIZE) {
@@ -905,11 +941,12 @@ int main(int argc, char *argv[])
         }
     }*/
 
+    u64 idx2 = 0;
     u64 idx = 0;
     while (!stop)
     {
         uint8_t tmp[0x200];
-        int ret = libusbd_ep_read(ums_ctx, ums_interface, ums_epBulkOut, tmp, 0x1F, 100);
+        int ret = libusbd_ep_read(ums_ctx, ums_interface, ums_epBulkOut, tmp, 0x1F, 10);
         if (ret > 0 && !(ret & 0xF0000000)) {
             //printf("read %x\n", ret);
             ums_on_data_recv(tmp);
@@ -919,11 +956,15 @@ int main(int argc, char *argv[])
             msleep(100);
         }
 
-        char speen[4] = {'/', '-', '\\', '|'};
-        printf("%c\r", speen[idx % 4]);
-        if (!ret || ret < 0)
-            fflush(stdout);
-        idx++;
+        if (idx2 >= 4) {
+            char speen[4] = {'/', '-', '\\', '|'};
+            printf("%c\r", speen[idx % 4]);
+            if (!ret || ret < 0)
+                fflush(stdout);
+            idx++;
+            idx2 = 0;
+        }
+        idx2++;
     }
 
     libusbd_free(ums_ctx);
