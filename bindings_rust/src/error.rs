@@ -8,7 +8,7 @@ use crate as libusbd;
 pub type Result<T> = StdResult<T, Error>;
 
 
-/// Errors returned by the `libusb` library.
+/// Errors returned by the `libusbd` library.
 #[derive(Debug)]
 pub enum Error {
     /// Success (no error).
@@ -70,7 +70,7 @@ impl StdError for Error {
 
 
 #[doc(hidden)]
-pub fn from_libusb(err: ::std::os::raw::c_int) -> Error {
+pub fn from_libusbd(err: ::std::os::raw::c_int) -> Error {
     match err {
         libusbd::libusbd_error_LIBUSBD_SUCCESS                 => Error::Success,
         libusbd::libusbd_error_LIBUSBD_INVALID_ARGUMENT        => Error::InvalidArgument,
@@ -88,17 +88,8 @@ pub fn from_libusb(err: ::std::os::raw::c_int) -> Error {
 macro_rules! try_unsafe {
     ($x:expr) => {
         match unsafe { $x as i32 } {
-            err if err < 0 => return Err($crate::error::from_libusb(err)),
+            err if err < 0 => return Err($crate::error::from_libusbd(err)),
             val => val,
-        }
-    }
-}
-
-macro_rules! ret_unsafe {
-    ($x:expr) => {
-        match unsafe { $x as i32 } {
-            err if err < 0 => Err($crate::error::from_libusb(err)),
-            val => Ok(val),
         }
     }
 }

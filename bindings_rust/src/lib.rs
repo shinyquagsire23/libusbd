@@ -14,38 +14,6 @@ mod tests {
 
     use crate as libusbd;
 
-/*
-    #[test]
-    fn test_init() {
-        unsafe {
-            let mut pCtx: *mut libusbd_ctx_t = ptr::null_mut();
-
-            libusbd_init(&mut pCtx);
-
-            //libusbd_set_vid(pCtx, 0x1234);
-            libusbd_set_pid(pCtx, 0x1234);
-            libusbd_set_version(pCtx, 0x1234);
-
-            libusbd_set_class(pCtx, 0);
-            libusbd_set_subclass(pCtx, 0);
-            libusbd_set_protocol(pCtx, 0);
-
-            libusbd_set_manufacturer_str(pCtx, CString::new("Manufacturer").unwrap().as_ptr());
-            libusbd_set_product_str(pCtx, CString::new("Product").unwrap().as_ptr());
-            libusbd_set_serial_str(pCtx, CString::new("Serial").unwrap().as_ptr());
-
-            let mut iface_num: u8 = 0;
-            libusbd_iface_alloc(pCtx, &mut iface_num);
-            libusbd_config_finalize(pCtx);
-
-            libusbd_iface_set_class(pCtx, iface_num, 3);
-            libusbd_iface_set_subclass(pCtx, iface_num, 1);
-            libusbd_iface_set_protocol(pCtx, iface_num, 1);
-
-            libusbd_free(pCtx);
-        }
-    }
-*/
     macro_rules! must_succeed {
         ($x:expr) => {
             match $x {

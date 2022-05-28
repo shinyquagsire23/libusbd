@@ -1,5 +1,5 @@
 use libusbd::{Context, EpType, EpDir};
-use std::{thread, time};
+use std::time;
 use futures::executor::block_on;
 use async_std::task;
 use std::io::{self, Write};
@@ -22,9 +22,7 @@ async fn speen_task() {
         idx += 1;
 
         if idx > 60 {
-            //libusbd_ep_write(pCtx, iface_num, ep_out, resp_0, sizeof(resp_0), 16);
             idx = 0;
-            //break;
         }
 
         io::stdout().flush().unwrap();

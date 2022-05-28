@@ -127,7 +127,7 @@ void StopRunLoopThread()
     _runLoop = NULL;
 }
 
-kern_return_t IOUSBDeviceInterface_WritePipe(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, void* data, uint32_t len, uint64_t timeoutMs);
+kern_return_t IOUSBDeviceInterface_WritePipe(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, const void* data, uint32_t len, uint64_t timeoutMs);
 kern_return_t IOUSBDeviceInterface_GetPipeCurrentMaxPacketSize(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, uint64_t* pOut);
 kern_return_t IOUSBDeviceInterface_AbortPipe(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id);
 kern_return_t IOUSBDeviceInterface_StallPipe(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id);
@@ -188,7 +188,7 @@ kern_return_t IOUSBDeviceInterface_CreatePipe(libusbd_macos_ctx_t* pImplCtx, uin
     return ret;
 }
 
-kern_return_t IOUSBDeviceInterface_AppendStandardClassOrVendorDescriptor(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, uint8_t* pDesc, uint64_t descSz)
+kern_return_t IOUSBDeviceInterface_AppendStandardClassOrVendorDescriptor(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, const uint8_t* pDesc, uint64_t descSz)
 {
     libusbd_macos_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
 
@@ -199,7 +199,7 @@ kern_return_t IOUSBDeviceInterface_AppendStandardClassOrVendorDescriptor(libusbd
     return ret;
 }
 
-kern_return_t IOUSBDeviceInterface_AppendNonstandardClassOrVendorDescriptor(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, uint8_t* pDesc, uint64_t descSz)
+kern_return_t IOUSBDeviceInterface_AppendNonstandardClassOrVendorDescriptor(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, const uint8_t* pDesc, uint64_t descSz)
 {
     libusbd_macos_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
 
@@ -373,7 +373,7 @@ kern_return_t IOUSBDeviceInterface_ReadPipe(libusbd_macos_ctx_t* pImplCtx, uint8
 
     if (ret) {
         if (ret != LIBUSBD_MACOS_ERR_NOTACTIVATED)
-            printf("libusbd macos: Unexpected error during IOUSBDeviceInterface_ReadPipe: %x (output %x)\n", ret, output[0]);
+            printf("libusbd macos: Unexpected error during IOUSBDeviceInterface_ReadPipe: %x (output %llx)\n", ret, output[0]);
         return ret;
     }
 
@@ -426,7 +426,7 @@ kern_return_t IOUSBDeviceInterface_ReadPipeStart(libusbd_macos_ctx_t* pImplCtx, 
     return ret;
 }
 
-kern_return_t IOUSBDeviceInterface_WritePipe(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, void* data, uint32_t len, uint64_t timeoutMs)
+kern_return_t IOUSBDeviceInterface_WritePipe(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, const void* data, uint32_t len, uint64_t timeoutMs)
 {
     if (iface_num >= LIBUSBD_MAX_IFACES) return LIBUSBD_MACOS_FAKERET_BADARGS;
 
@@ -457,7 +457,7 @@ kern_return_t IOUSBDeviceInterface_WritePipe(libusbd_macos_ctx_t* pImplCtx, uint
     return ret;
 }
 
-kern_return_t IOUSBDeviceInterface_WritePipeStart(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, void* data, uint32_t len, uint64_t timeoutMs)
+kern_return_t IOUSBDeviceInterface_WritePipeStart(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, const void* data, uint32_t len, uint64_t timeoutMs)
 {
     if (iface_num >= LIBUSBD_MAX_IFACES) return LIBUSBD_MACOS_FAKERET_BADARGS;
 
@@ -881,7 +881,7 @@ int libusbd_macos_iface_finalize(libusbd_ctx_t* pCtx, uint8_t iface_num)
 }
 
 
-int libusbd_macos_iface_standard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, uint8_t* pDesc, uint64_t descSz)
+int libusbd_macos_iface_standard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, const uint8_t* pDesc, uint64_t descSz)
 {
     if (!pCtx || !pCtx->pMacosCtx) {
         return LIBUSBD_INVALID_ARGUMENT;
@@ -900,7 +900,7 @@ int libusbd_macos_iface_standard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num, ui
     return LIBUSBD_SUCCESS;
 }
 
-int libusbd_macos_iface_nonstandard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, uint8_t* pDesc, uint64_t descSz)
+int libusbd_macos_iface_nonstandard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, const uint8_t* pDesc, uint64_t descSz)
 {
     if (!pCtx || !pCtx->pMacosCtx) {
         return LIBUSBD_INVALID_ARGUMENT;
@@ -1130,7 +1130,7 @@ int libusbd_macos_ep_read(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, v
 }
 
 
-int libusbd_macos_ep_write(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, void* data, uint32_t len, uint64_t timeoutMs)
+int libusbd_macos_ep_write(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, const void* data, uint32_t len, uint64_t timeoutMs)
 {
     if (!pCtx || !pCtx->pMacosCtx) {
         return LIBUSBD_INVALID_ARGUMENT;
@@ -1226,7 +1226,7 @@ int libusbd_macos_ep_get_buffer(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t
 
     *pOut = pEp->buffer.data;
 
-    return LIBUSBD_SUCCESS;
+    return (pEp->buffer.size & 0x7FFFFFFF);
 }
 
 int libusbd_macos_ep_read_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, uint32_t len)
@@ -1267,7 +1267,7 @@ int libusbd_macos_ep_read_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t
     return ret;
 }
 
-int libusbd_macos_ep_write_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, void* data, uint32_t len)
+int libusbd_macos_ep_write_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, const void* data, uint32_t len)
 {
     if (!pCtx || !pCtx->pMacosCtx) {
         return LIBUSBD_INVALID_ARGUMENT;
@@ -1298,7 +1298,7 @@ int libusbd_macos_ep_write_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_
     }
     else if (ret & 0xFFF00000)
     {
-        printf("libusbd macos: Unknown error from IOUSBDeviceInterface_WritePipe: %08x\n", ret);
+        printf("libusbd macos: Unknown error from IOUSBDeviceInterface_WritePipeStart: %08x\n", ret);
         return LIBUSBD_NONDESCRIPT_ERROR;
     }
 

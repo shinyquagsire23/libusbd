@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 fn main() {
 
+    // These are absolute paths, to avoid any relative path issues
     if let Ok(include_dir) = env::var("LIBUSBD_INCLUDE_DIR") {
         println!("cargo:include={}", include_dir);
     }
@@ -29,20 +30,11 @@ fn main() {
         println!("cargo:rustc-link-lib=usbd");
     }
 
-    // These are absolute paths, to avoid any relative path issues
+    
     let include_path = match env::var("LIBUSBD_INCLUDE_DIR") {
         Ok(s) => PathBuf::from(s),
         _ => PathBuf::from("../include")
     };
-    let lib_path = match env::var("LIBUSBD_LIB_DIR") {
-        Ok(s) => PathBuf::from(s),
-        _ => PathBuf::from("..")
-    };
-
-    // Link our library
-    
-
-    //let lib_arg = format!("-L{}", lib_path.to_str().unwrap());
 
     // Build our args and generate
     println!("cargo:rerun-if-changed=wrapper.h");
