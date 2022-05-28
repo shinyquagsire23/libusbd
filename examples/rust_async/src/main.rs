@@ -36,25 +36,45 @@ async fn usb_print_task(context: Context, iface_num: u8, ep_out: u64)
     let test_send_2: [u8; 8] = [0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0];
 
     loop {
-        match context.ep_write_async(iface_num, ep_out, &test_send)
+        let send_future_1 = match context.ep_write_async(iface_num, ep_out, &test_send, 1000)
         {
-            Ok(f) => f.await,
+            Ok(f) => f,
             Err(err) => {
                 println!("Got error: {:?}", err);
                 task::sleep(time::Duration::from_millis(1000)).await;
                 continue;
             },
         };
-        task::sleep(time::Duration::from_millis(16)).await;
-        //thread::sleep(key_delay);
-        match context.ep_write_async(iface_num, ep_out, &test_send_2)
-        {
-            Ok(f) => f.await,
+
+        // This also reports the number of bytes written, if Ok
+        match send_future_1.await {
             Err(err) => {
                 println!("Got error: {:?}", err);
                 task::sleep(time::Duration::from_millis(1000)).await;
                 continue;
             },
+            Ok(_) => (),
+        };
+        task::sleep(time::Duration::from_millis(16)).await;
+
+        let send_future_2 = match context.ep_write_async(iface_num, ep_out, &test_send_2, 1000)
+        {
+            Ok(f) => f,
+            Err(err) => {
+                println!("Got error: {:?}", err);
+                task::sleep(time::Duration::from_millis(1000)).await;
+                continue;
+            },
+        };
+
+        // This also reports the number of bytes written, if Ok
+        match send_future_2.await {
+            Err(err) => {
+                println!("Got error: {:?}", err);
+                task::sleep(time::Duration::from_millis(1000)).await;
+                continue;
+            },
+            Ok(_) => (),
         };
         task::sleep(time::Duration::from_millis(16)).await;
     }

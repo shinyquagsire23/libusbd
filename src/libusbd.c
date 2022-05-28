@@ -357,14 +357,14 @@ int libusbd_ep_get_buffer(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, v
     return libusbd_macos_ep_get_buffer(pCtx, iface_num, ep, pOut);
 }
 
-int libusbd_ep_read_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep,uint32_t len)
+int libusbd_ep_read_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep,uint32_t len, uint64_t timeout_ms)
 {
-    return libusbd_macos_ep_read_start(pCtx, iface_num, ep, len);
+    return libusbd_macos_ep_read_start(pCtx, iface_num, ep, len, timeout_ms);
 }
 
-int libusbd_ep_write_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, const void* data, uint32_t len)
+int libusbd_ep_write_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, const void* data, uint32_t len, uint64_t timeout_ms)
 {
-    return libusbd_macos_ep_write_start(pCtx, iface_num, ep, data, len);
+    return libusbd_macos_ep_write_start(pCtx, iface_num, ep, data, len, timeout_ms);
 }
 
 int libusbd_ep_transfer_done(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep)

@@ -50,17 +50,16 @@ pub struct EpFuture<'a>
     ep: u64,
 }
 
-// TODO: is there a way to only wake after 1ms?rust 
 impl Future for EpFuture<'_> 
 {
-    type Output = ();
+    type Output = Result<i32>;
     fn poll(self: Pin<&mut Self>, ctx: &mut core::task::Context<'_>) -> Poll<Self::Output> 
     {
         let result = self.context.ep_transfer_done(self.iface_num, self.ep);
         match result
         {
-            Ok(true) => Poll::Ready(()),
-            //Ok(false) => {ctx.waker().wake_by_ref(); Poll::Pending},
+            Ok(true) => Poll::Ready(self.context.ep_transferred_bytes(self.iface_num, self.ep)),
+            Err(f) => Poll::Ready(Err(f)),
             _ => {
                 let waker = ctx.waker().clone(); 
 
@@ -305,16 +304,20 @@ impl Context {
 
     /// Schedules a write transaction on an endpoint.
     /// Data is copied to the underlying buffer before returning a Future.
-    pub fn ep_write_async<'a>(&'a self, iface_num: u8, ep: u64, data_in: &[u8]) -> Result<EpFuture<'a>> {
-        try_unsafe!(libusbd_ep_write_start(self.context, iface_num, ep, data_in.as_ptr() as *const c_void, data_in.len() as u32));
+    ///
+    /// EpFutures return the number of bytes transferred if successful, or the error otherwise.
+    pub fn ep_write_async<'a>(&'a self, iface_num: u8, ep: u64, data_in: &[u8], timeout_ms: u64) -> Result<EpFuture<'a>> {
+        try_unsafe!(libusbd_ep_write_start(self.context, iface_num, ep, data_in.as_ptr() as *const c_void, data_in.len() as u32, timeout_ms));
 
         Ok(EpFuture { context: self, iface_num: iface_num, ep: ep })
     }
 
     /// Schedules a read transaction on an endpoint.
     /// Data is accessible through `ep_get_buffer` after the returned Future is complete.
-    pub fn ep_read_async<'a>(&'a self, iface_num: u8, ep: u64, len: u32) -> Result<EpFuture<'a>> {
-        try_unsafe!(libusbd_ep_read_start(self.context, iface_num, ep, len));
+    ///
+    /// EpFutures return the number of bytes transferred if successful, or the error otherwise.
+    pub fn ep_read_async<'a>(&'a self, iface_num: u8, ep: u64, len: u32, timeout_ms: u64) -> Result<EpFuture<'a>> {
+        try_unsafe!(libusbd_ep_read_start(self.context, iface_num, ep, len, timeout_ms));
 
         Ok(EpFuture { context: self, iface_num: iface_num, ep: ep })
     }
