@@ -14,8 +14,9 @@ typedef struct libusbd_macos_buffer_t
 
 typedef struct libusbd_macos_ep_t
 {
-    uint64_t last_read;
+    uint64_t last_transferred;
     uint64_t ep_async_done;
+    int32_t last_error;
     uint64_t maxPktSize;
 
     libusbd_macos_buffer_t buffer;

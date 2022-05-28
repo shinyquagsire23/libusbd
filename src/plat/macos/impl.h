@@ -26,6 +26,9 @@ int libusbd_macos_ep_stall(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep);
 int libusbd_macos_ep_abort(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep);
 int libusbd_macos_ep_get_buffer(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, void** pOut);
 int libusbd_macos_ep_read_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, uint32_t len);
+int libusbd_macos_ep_write_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, void* data, uint32_t len);
+int libusbd_macos_ep_transfer_done(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep);
+int libusbd_macos_ep_transferred_bytes(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep);
 
 #define LIBUSBD_MACOS_ERR_NOTACTIVATED (0xE0000001)
 #define LIBUSBD_MACOS_ERR_TIMEOUT (0xE00002D6)

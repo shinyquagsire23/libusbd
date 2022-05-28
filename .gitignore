@@ -14,4 +14,10 @@ examples/nintendo/example_nintendo
 *.iso
 log*.txt
 notes.txt
-*crash.txt
+*crash*.txt
+Cargo.lock
+bindings.txt
+bindings_rust/target/*
+examples/rust_async/target/*
+boot_args.txt
+*.img

@@ -2,6 +2,7 @@
 
 #include "libusbd_priv.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -219,6 +220,7 @@ int libusbd_iface_alloc(libusbd_ctx_t* pCtx, uint8_t* pOut)
     if (!pCtx) {
         return LIBUSBD_INVALID_ARGUMENT;
     }
+    //printf("aaaaaaaaaa %x\n", pCtx->finalized);
 
     if (pCtx->finalized) {
         return LIBUSBD_ALREADY_FINALIZED;
@@ -244,12 +246,12 @@ int libusbd_iface_finalize(libusbd_ctx_t* pCtx, uint8_t iface_num)
     return libusbd_macos_iface_finalize(pCtx, iface_num);
 }
 
-int libusbd_iface_standard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, uint8_t* pDesc, uint64_t descSz)
+int libusbd_iface_standard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, const uint8_t* pDesc, uint64_t descSz)
 {
     return libusbd_macos_iface_standard_desc(pCtx, iface_num, descType, unk, pDesc, descSz);
 }
 
-int libusbd_iface_nonstandard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, uint8_t* pDesc, uint64_t descSz)
+int libusbd_iface_nonstandard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, const uint8_t* pDesc, uint64_t descSz)
 {
     return libusbd_macos_iface_nonstandard_desc(pCtx, iface_num, descType, unk, pDesc, descSz);
 }
@@ -335,7 +337,7 @@ int libusbd_ep_read(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, void* d
     return libusbd_macos_ep_read(pCtx, iface_num, ep, data, len, timeoutMs);
 }
 
-int libusbd_ep_write(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, void* data, uint32_t len, uint64_t timeoutMs)
+int libusbd_ep_write(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, const void* data, uint32_t len, uint64_t timeoutMs)
 {
     return libusbd_macos_ep_write(pCtx, iface_num, ep, data, len, timeoutMs);
 }
@@ -358,4 +360,19 @@ int libusbd_ep_get_buffer(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, v
 int libusbd_ep_read_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep,uint32_t len)
 {
     return libusbd_macos_ep_read_start(pCtx, iface_num, ep, len);
+}
+
+int libusbd_ep_write_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, const void* data, uint32_t len)
+{
+    return libusbd_macos_ep_write_start(pCtx, iface_num, ep, data, len);
+}
+
+int libusbd_ep_transfer_done(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep)
+{
+    return libusbd_macos_ep_transfer_done(pCtx, iface_num, ep);
+}
+
+int libusbd_ep_transferred_bytes(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep)
+{
+    return libusbd_macos_ep_transferred_bytes(pCtx, iface_num, ep);
 }
