@@ -17,7 +17,12 @@ int libusbd_init(libusbd_ctx_t** pCtxOut)
     *pCtxOut = malloc(sizeof(libusbd_ctx_t));
     memset(*pCtxOut, 0, sizeof(**pCtxOut));
 
-    libusbd_macos_init(*pCtxOut);
+    int ret = libusbd_macos_init(*pCtxOut);
+    if (ret < 0) {
+        free(*pCtxOut);
+        *pCtxOut = NULL;
+        return ret;
+    }
 
     return LIBUSBD_SUCCESS;
 }
@@ -27,6 +32,7 @@ int libusbd_free(libusbd_ctx_t* pCtx)
     if (!pCtx) {
         return LIBUSBD_INVALID_ARGUMENT;
     }
+
     libusbd_set_manufacturer_str(pCtx, NULL);
     libusbd_set_product_str(pCtx, NULL);
     libusbd_set_serial_str(pCtx, NULL);
@@ -34,7 +40,6 @@ int libusbd_free(libusbd_ctx_t* pCtx)
     libusbd_macos_free(pCtx);
 
     memset(pCtx, 0, sizeof(*pCtx));
-
     free(pCtx);
 
     return LIBUSBD_SUCCESS;
@@ -243,6 +248,14 @@ int libusbd_iface_alloc(libusbd_ctx_t* pCtx, uint8_t* pOut)
 
 int libusbd_iface_finalize(libusbd_ctx_t* pCtx, uint8_t iface_num)
 {
+    if (!pCtx) {
+        return LIBUSBD_ALREADY_FINALIZED;
+    }
+
+    if (!pCtx->finalized) {
+        return LIBUSBD_NONDESCRIPT_ERROR; // TODO specific error for this
+    }
+
     return libusbd_macos_iface_finalize(pCtx, iface_num);
 }
 

@@ -276,7 +276,7 @@ impl Context {
         Ok(ret != 0)
     }
 
-    /// Returns the number of transferred bytes from the last async transaction.33333
+    /// Returns the number of transferred bytes from the last async transaction.
     pub fn ep_transferred_bytes(&self, iface_num: u8, ep: u64) -> Result<i32> {
         let ret = try_unsafe!(libusbd_ep_transferred_bytes(self.context, iface_num, ep));
 
@@ -322,8 +322,4 @@ impl Context {
         Ok(EpFuture { context: self, iface_num: iface_num, ep: ep })
     }
 
-/*
-int libusbd_ep_get_buffer(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, void** pOut);
-int libusbd_ep_read_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, uint32_t len);
-*/
 }

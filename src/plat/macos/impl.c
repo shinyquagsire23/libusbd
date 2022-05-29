@@ -332,7 +332,7 @@ void IOUSBDeviceInterface_WritePipeCallback(void* refcon, IOReturn result, uint6
 
     pEp->last_error = result;
 
-    printf("write callback %llx %x\n", pEp->last_transferred, pEp->last_error);
+    //printf("write callback %llx %x\n", pEp->last_transferred, pEp->last_error);
 
     //if (pEp->last_transferred)
     //    printf("libusbd macos: Read %x bytes %x (%x)\n", pEp->last_transferred, result, *(uint32_t*)pEp->buffer.data);
@@ -549,8 +549,9 @@ kern_return_t IOUSBDeviceInterface_SetPipeProperty(libusbd_macos_ctx_t* pImplCtx
 
 int libusbd_macos_init(libusbd_ctx_t* pCtx)
 {
-    if (!pCtx)
+    if (!pCtx) {
         return LIBUSBD_INVALID_ARGUMENT;
+    }
 
     pCtx->pMacosCtx = malloc(sizeof(libusbd_macos_ctx_t));
     memset(pCtx->pMacosCtx, 0, sizeof(*pCtx->pMacosCtx));
@@ -635,21 +636,21 @@ int libusbd_macos_init(libusbd_ctx_t* pCtx)
     pImplCtx->notification_port = IONotificationPortCreate(kIOMainPortDefault);
     if (!pImplCtx->notification_port) {
         printf("libusbd macos: Error getting notification port.\n");
-        return 0;
+        return LIBUSBD_NONDESCRIPT_ERROR;
     }
 
     // Get lower level mach port from notification port.
     pImplCtx->mnotification_port = IONotificationPortGetMachPort(pImplCtx->notification_port);
     if (!pImplCtx->mnotification_port) {
         printf("libusbd macos: Error getting mach notification port.\n");
-        return 0;
+        return LIBUSBD_NONDESCRIPT_ERROR;
     }
 
     // Create a run loop source from our notification port so we can add the port to our run loop.
     run_loop_source = IONotificationPortGetRunLoopSource(pImplCtx->notification_port);
     if (run_loop_source == NULL) {
         printf("libusbd macos: Error getting run loop source.\n");
-        return 0;
+        return LIBUSBD_NONDESCRIPT_ERROR;
     }
 
     // Add the notification port and timer to the run loop.

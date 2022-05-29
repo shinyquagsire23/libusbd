@@ -41,7 +41,6 @@ typedef struct libusbd_ctx_t
     bool finalized;
 } libusbd_ctx_t;
 
-
 #ifdef __cplusplus
 }
 #endif
