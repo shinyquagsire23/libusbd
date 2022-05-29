@@ -19,5 +19,7 @@ Cargo.lock
 bindings.txt
 bindings_rust/target/*
 examples/rust_async/target/*
+examples/rust_kvm/target/*
 boot_args.txt
+mouse_hid.txt
 *.img
