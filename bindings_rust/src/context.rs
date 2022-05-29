@@ -168,6 +168,14 @@ impl Context {
         Ok(())
     }
 
+    /// Allocates an interface for a kernel/builtin driver.
+    #[allow(temporary_cstring_as_ptr)] // we explicitly copy the string to new memory
+    pub fn iface_alloc_builtin(&self, name: &str) -> Result<()> {
+        try_unsafe!(libusbd_iface_alloc_builtin(self.context, CString::new(name).unwrap().as_ptr()));
+
+        Ok(())
+    }
+
     /// Allocates an interface index for the port's configuration.
     pub fn iface_alloc(&self) -> Result<u8> {
         let mut out: u8 = 0xFF;

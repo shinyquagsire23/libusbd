@@ -39,6 +39,8 @@ typedef struct libusbd_macos_iface_t
     libusbd_setup_callback_info_t setup_callback_info;
     int class_async_done;
 
+    int is_builtin;
+
     uint8_t bNumEndpoints;
     libusbd_macos_ep_t aEndpoints[16];
 } libusbd_macos_iface_t;

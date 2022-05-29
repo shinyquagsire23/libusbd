@@ -8,19 +8,11 @@ extern "C" {
 
 #include <stdint.h>
 
-#define USBD_EPNUM_MAX (32)
-#define USBD_EPIDX_MAX (16)
-
-#define USBD_CTRL_PKT_MAX (64)
-
-#define USB_EPATTR_TTYPE(attr) (attr & 0x3)
-#define USB_EPATTR_TTYPE_CTRL (0)
-#define USB_EPATTR_TTYPE_ISOC (1)
-#define USB_EPATTR_TTYPE_BULK (2)
-#define USB_EPATTR_TTYPE_INTR (3)
-
-#define USB_EP_DIR_OUT (0)
-#define USB_EP_DIR_IN (1)
+// Standard interfaces for `libusbd_iface_alloc_builtin`
+//
+// These names will alias to common interface functions
+// which are implemented using kernel-side drivers.
+#define LIBUSBD_STDIF_NCM ("libusbd_std_ncm")
 
 enum libusbd_error
 {
@@ -33,6 +25,22 @@ enum libusbd_error
     LIBUSBD_ALREADY_FINALIZED = -6,
     LIBUSBD_NONDESCRIPT_ERROR = -1024,
 };
+
+// Misc defines
+#define USBD_EPNUM_MAX (32)
+#define USBD_EPIDX_MAX (16)
+
+#define USBD_CTRL_PKT_MAX (64)
+
+// libusbd_iface_add_endpoint types
+#define USB_EPATTR_TTYPE(attr) (attr & 0x3)
+#define USB_EPATTR_TTYPE_CTRL (0)
+#define USB_EPATTR_TTYPE_ISOC (1)
+#define USB_EPATTR_TTYPE_BULK (2)
+#define USB_EPATTR_TTYPE_INTR (3)
+
+#define USB_EP_DIR_OUT (0)
+#define USB_EP_DIR_IN (1)
 
 // Plat types
 typedef struct libusbd_macos_ctx_t libusbd_macos_ctx_t;
@@ -71,6 +79,7 @@ int libusbd_set_serial_str(libusbd_ctx_t* pCtx, const char* pStr);
 
 int libusbd_config_finalize(libusbd_ctx_t* pCtx);
 
+int libusbd_iface_alloc_builtin(libusbd_ctx_t* pCtx, const char* name);
 int libusbd_iface_alloc(libusbd_ctx_t* pCtx, uint8_t* pOut);
 int libusbd_iface_finalize(libusbd_ctx_t* pCtx, uint8_t iface_num);
 int libusbd_iface_standard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, const uint8_t* pDesc, uint64_t descSz);

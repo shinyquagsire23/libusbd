@@ -83,6 +83,11 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
         Err(error) => panic!("Couldn't allocate interface: {:?}", error),
     };
 
+    match context.iface_alloc_builtin("libusbd_std_ncm") {
+        Ok(_) => (),
+        Err(error) => panic!("Couldn't allocate std interface: {:?}", error),
+    };
+
     must_succeed!(context.config_finalize());
 
     must_succeed!(context.iface_set_class(iface_num, 3));
@@ -108,7 +113,7 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
 
     must_succeed!(context.iface_standard_desc(iface_num, 0x21, 0xF, &hid_desc));
     must_succeed!(context.iface_nonstandard_desc(iface_num, 0x22, 0xF, &hid_report_desc));
-    let ep_out = match context.iface_add_endpoint(iface_num, EpType::INTR, EpDir::IN, 8, 20, 0) {
+    let ep_out = match context.iface_add_endpoint(iface_num, EpType::INTR, EpDir::IN, 8, 8, 0) {
         Ok(n) => n,
         Err(error) => panic!("Couldn't add endpoint: {:?}", error),
     };
@@ -134,7 +139,7 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
 
     must_succeed!(context.iface_standard_desc(iface_num_mouse, 0x21, 0xF, &hid_desc_mouse));
     must_succeed!(context.iface_nonstandard_desc(iface_num_mouse, 0x22, 0xF, &hid_report_desc_mouse));
-    let ep_out_mouse = match context.iface_add_endpoint(iface_num_mouse, EpType::INTR, EpDir::IN, 8, 20, 0) {
+    let ep_out_mouse = match context.iface_add_endpoint(iface_num_mouse, EpType::INTR, EpDir::IN, 8, 8, 0) {
         Ok(n) => n,
         Err(error) => panic!("Couldn't add endpoint: {:?}", error),
     };
