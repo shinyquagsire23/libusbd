@@ -9,7 +9,7 @@ use std::sync::mpsc::{Sender, Receiver};
 use std::sync::mpsc;
 
 mod support;
-use glutin::event::{Event, WindowEvent, DeviceEvent, ElementState, VirtualKeyCode, MouseButton};
+use glutin::event::{Event, WindowEvent, DeviceEvent, ElementState, VirtualKeyCode, MouseButton, MouseScrollDelta};
 use glutin::event_loop::{ControlFlow, EventLoop};
 use glutin::window::WindowBuilder;
 use glutin::ContextBuilder;
@@ -54,6 +54,8 @@ struct SentMouse
     pressed: bool,
     dx: i16,
     dy: i16,
+    wheel_dx: i8,
+    wheel_dy: i8,
 }
 
 async fn nop_async() {}
@@ -197,6 +199,8 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
 
         let mut dx = 0;
         let mut dy = 0;
+        let mut wheel_dx: i16 = 0;
+        let mut wheel_dy: i16 = 0;
 
         for _i in 0..100 {
             let event = match rx_mouse.try_recv() {
@@ -216,6 +220,12 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
             dx += event.dx;
             dy += event.dy;
 
+            wheel_dx += event.wheel_dx as i16;
+            wheel_dy += event.wheel_dy as i16;
+
+            wheel_dx = wheel_dx.max(-127).min(127);
+            wheel_dy = wheel_dy.max(-127).min(127);
+
             mouse_needs_update = true;
 
             //println!("{} {}", event.scancode, event.pressed);
@@ -226,6 +236,11 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
         mouse_send[3] = ((dx as u16 & 0xFF00) >> 8) as u8;
         mouse_send[4] = (dy as u16 & 0xFF) as u8;
         mouse_send[5] = ((dy as u16 & 0xFF00) >> 8) as u8;
+        mouse_send[6] = wheel_dy as u8;
+        mouse_send[7] = wheel_dx as u8;
+        if wheel_dy != 0 {
+        println!("{}", wheel_dy);
+    }
 
         if needs_update || mouse_needs_update {
             //println!("{:?} {:?}", keyboard_send, mouse_send);
@@ -476,7 +491,7 @@ fn window(tx: Sender<SentKeypress>, tx_mouse: Sender<SentMouse>)
                 },
                 WindowEvent::MouseInput { button, state, .. } => {
                     //println!("{:?}", event);
-                    tx_mouse.send(SentMouse { button:convert_mousebuttons(button), pressed: state == ElementState::Pressed, dx: 0, dy: 0 });
+                    tx_mouse.send(SentMouse { button:convert_mousebuttons(button), pressed: state == ElementState::Pressed, dx: 0, dy: 0, wheel_dx: 0, wheel_dy: 0 });
                 },
                 _ => (),
             },
@@ -487,7 +502,23 @@ fn window(tx: Sender<SentKeypress>, tx_mouse: Sender<SentMouse>)
             Event::DeviceEvent { event, .. } => match event {
                 DeviceEvent::MouseMotion { delta } => {
                     //println!("{:?}", event);
-                    tx_mouse.send(SentMouse { button:0, pressed: false, dx: delta.0 as i16, dy: delta.1 as i16 });
+                    tx_mouse.send(SentMouse { button:0, pressed: false, dx: delta.0 as i16, dy: delta.1 as i16, wheel_dx: 0, wheel_dy: 0 });
+                },
+                DeviceEvent::MouseWheel { delta } => {
+                    //println!("{:?}", event);
+                    let mut dx = 0;
+                    let mut dy = 0;
+
+                    match delta {
+                        MouseScrollDelta::LineDelta(a,b) => {
+                            let mut f_dx = a.max(-1.0).min(1.0);
+                            let mut f_dy = b.max(-1.0).min(1.0);
+                            dx = (f_dx * 127.0) as i8;
+                            dy = (f_dy * 127.0) as i8;
+                        },
+                        _ => (),
+                    };
+                    tx_mouse.send(SentMouse { button:0, pressed: false, dx: 0, dy: 0, wheel_dx: dx, wheel_dy: dy });
                 },
                 _ => (),
             },
