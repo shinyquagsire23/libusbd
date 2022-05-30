@@ -11,6 +11,9 @@ extern "C" {
 #define LIBUSBD_MAX_IFACES    (16)
 #define LIBUSBD_MAX_IFACE_EPS (16)
 
+typedef struct libusbd_macos_ctx_t libusbd_macos_ctx_t;
+typedef struct libusbd_linux_ctx_t libusbd_linux_ctx_t;
+
 typedef struct libusbd_iface_t {
     uint8_t bClass;
     uint8_t bSubclass;
@@ -25,6 +28,7 @@ typedef struct libusbd_ctx_t
     {
         void* pPlatCtx;
         libusbd_macos_ctx_t* pMacosCtx;
+        libusbd_linux_ctx_t* pLinuxCtx;
     };
     uint8_t bNumInterfaces;
     uint16_t vid;
