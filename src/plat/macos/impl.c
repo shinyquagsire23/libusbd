@@ -728,8 +728,8 @@ int libusbd_impl_config_finalize(libusbd_ctx_t* pCtx)
     if (pCtx->did)
         alt_IOUSBDeviceDescriptionSetVersion(pImplCtx->desc, pCtx->did);
     alt_IOUSBDeviceDescriptionSetClass(pImplCtx->desc, pCtx->bClass);
-    alt_IOUSBDeviceDescriptionSetSubClass(pImplCtx->desc, pCtx->bClass);
-    alt_IOUSBDeviceDescriptionSetProtocol(pImplCtx->desc, pCtx->bClass);
+    alt_IOUSBDeviceDescriptionSetSubClass(pImplCtx->desc, pCtx->bSubclass);
+    alt_IOUSBDeviceDescriptionSetProtocol(pImplCtx->desc, pCtx->bProtocol);
 
     if (pCtx->pManufacturerStr) {
         CFStringRef str = CFStringCreateWithCString(NULL, pCtx->pManufacturerStr, 0);
