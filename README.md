@@ -16,6 +16,7 @@ Cross-OS library for implementing USB device-mode interfaces. WIP. I'm currently
  - `examples/ums`: Emulates a USB Mass Storage device from an image file, including writing. [Stress tested as a flashdrive-less Ubuntu LiveUSB](https://www.youtube.com/watch?v=MR_B6qVGMl0).
  - `examples/rust_async`: Emulates a HID keyboard using Rust, with async functions.
  - `examples/rust_kvm`: A simple software KVM which outputs keystrokes/mouse input performed in a window to an emulated HID device (video [here](https://www.youtube.com/watch?v=k16TgXT1ggs)).
+ - `examples/rust_nintendo`: Emulates a wired Nintendo Switch controller. Keyboard input is translated to controller buttonpresses at 120Hz.
 
  # Linux build dependencies:
  ```
