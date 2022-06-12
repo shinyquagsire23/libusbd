@@ -3,12 +3,173 @@
 #include "impl_priv.h"
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <dirent.h>
 
 #include <pthread.h>
 
+#include <linux/usb/functionfs.h>
+
 #include "libusbd_priv.h"
+
+
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+#define cpu_to_le16(x)  (x)
+#define cpu_to_le32(x)  (x)
+#else
+#define cpu_to_le16(x)  ((((x) >> 8) & 0xffu) | (((x) & 0xffu) << 8))
+#define cpu_to_le32(x)  \
+	((((x) & 0xff000000u) >> 24) | (((x) & 0x00ff0000u) >>  8) | \
+	(((x) & 0x0000ff00u) <<  8) | (((x) & 0x000000ffu) << 24))
+#endif
+
+#define le32_to_cpu(x)  le32toh(x)
+#define le16_to_cpu(x)  le16toh(x)
+
+static const struct {
+	struct usb_functionfs_descs_head_v2 header;
+	__le32 fs_count;
+	__le32 hs_count;
+	__le32 ss_count;
+	struct {
+		struct usb_interface_descriptor intf;
+		struct usb_endpoint_descriptor_no_audio sink;
+		struct usb_endpoint_descriptor_no_audio source;
+	} __attribute__((packed)) fs_descs, hs_descs;
+	struct {
+		struct usb_interface_descriptor intf;
+		struct usb_endpoint_descriptor_no_audio sink;
+		struct usb_ss_ep_comp_descriptor sink_comp;
+		struct usb_endpoint_descriptor_no_audio source;
+		struct usb_ss_ep_comp_descriptor source_comp;
+	} ss_descs;
+} __attribute__((packed)) descriptors = {
+	.header = {
+		.magic = cpu_to_le32(FUNCTIONFS_DESCRIPTORS_MAGIC_V2),
+		.flags = cpu_to_le32(FUNCTIONFS_HAS_FS_DESC |
+				     FUNCTIONFS_HAS_HS_DESC |
+				     FUNCTIONFS_HAS_SS_DESC),
+		.length = cpu_to_le32(sizeof descriptors),
+	},
+	.fs_count = cpu_to_le32(3),
+	.fs_descs = {
+		.intf = {
+			.bLength = sizeof descriptors.fs_descs.intf,
+			.bDescriptorType = USB_DT_INTERFACE,
+			.bNumEndpoints = 2,
+			.bInterfaceClass = USB_CLASS_VENDOR_SPEC,
+			.iInterface = 1,
+		},
+		.sink = {
+			.bLength = sizeof descriptors.fs_descs.sink,
+			.bDescriptorType = USB_DT_ENDPOINT,
+			.bEndpointAddress = 1 | USB_DIR_IN,
+			.bmAttributes = USB_ENDPOINT_XFER_BULK,
+			/* .wMaxPacketSize = autoconfiguration (kernel) */
+		},
+		.source = {
+			.bLength = sizeof descriptors.fs_descs.source,
+			.bDescriptorType = USB_DT_ENDPOINT,
+			.bEndpointAddress = 2 | USB_DIR_OUT,
+			.bmAttributes = USB_ENDPOINT_XFER_BULK,
+			/* .wMaxPacketSize = autoconfiguration (kernel) */
+		},
+	},
+	.hs_count = cpu_to_le32(3),
+	.hs_descs = {
+		.intf = {
+			.bLength = sizeof descriptors.fs_descs.intf,
+			.bDescriptorType = USB_DT_INTERFACE,
+			.bNumEndpoints = 2,
+			.bInterfaceClass = USB_CLASS_VENDOR_SPEC,
+			.iInterface = 1,
+		},
+		.sink = {
+			.bLength = sizeof descriptors.hs_descs.sink,
+			.bDescriptorType = USB_DT_ENDPOINT,
+			.bEndpointAddress = 1 | USB_DIR_IN,
+			.bmAttributes = USB_ENDPOINT_XFER_BULK,
+			.wMaxPacketSize = cpu_to_le16(512),
+		},
+		.source = {
+			.bLength = sizeof descriptors.hs_descs.source,
+			.bDescriptorType = USB_DT_ENDPOINT,
+			.bEndpointAddress = 2 | USB_DIR_OUT,
+			.bmAttributes = USB_ENDPOINT_XFER_BULK,
+			.wMaxPacketSize = cpu_to_le16(512),
+			.bInterval = 1, /* NAK every 1 uframe */
+		},
+	},
+	.ss_count = cpu_to_le32(5),
+	.ss_descs = {
+		.intf = {
+			.bLength = sizeof descriptors.fs_descs.intf,
+			.bDescriptorType = USB_DT_INTERFACE,
+			.bNumEndpoints = 2,
+			.bInterfaceClass = USB_CLASS_VENDOR_SPEC,
+			.iInterface = 1,
+		},
+		.sink = {
+			.bLength = sizeof descriptors.hs_descs.sink,
+			.bDescriptorType = USB_DT_ENDPOINT,
+			.bEndpointAddress = 1 | USB_DIR_IN,
+			.bmAttributes = USB_ENDPOINT_XFER_BULK,
+			.wMaxPacketSize = cpu_to_le16(1024),
+		},
+		.sink_comp = {
+			.bLength = USB_DT_SS_EP_COMP_SIZE,
+			.bDescriptorType = USB_DT_SS_ENDPOINT_COMP,
+			.bMaxBurst = 0,
+			.bmAttributes = 0,
+			.wBytesPerInterval = 0,
+		},
+		.source = {
+			.bLength = sizeof descriptors.hs_descs.source,
+			.bDescriptorType = USB_DT_ENDPOINT,
+			.bEndpointAddress = 2 | USB_DIR_OUT,
+			.bmAttributes = USB_ENDPOINT_XFER_BULK,
+			.wMaxPacketSize = cpu_to_le16(1024),
+			.bInterval = 1, /* NAK every 1 uframe */
+		},
+		.source_comp = {
+			.bLength = USB_DT_SS_EP_COMP_SIZE,
+			.bDescriptorType = USB_DT_SS_ENDPOINT_COMP,
+			.bMaxBurst = 0,
+			.bmAttributes = 0,
+			.wBytesPerInterval = 0,
+		},
+	},
+};
+
+#define STR_INTERFACE_ "Source/Sink"
+
+static const struct {
+	struct usb_functionfs_strings_head header;
+	struct {
+		__le16 code;
+		const char str1[sizeof STR_INTERFACE_];
+	} __attribute__((packed)) lang0;
+} __attribute__((packed)) strings = {
+	.header = {
+		.magic = cpu_to_le32(FUNCTIONFS_STRINGS_MAGIC),
+		.length = cpu_to_le32(sizeof strings),
+		.str_count = cpu_to_le32(1),
+		.lang_count = cpu_to_le32(1),
+	},
+	.lang0 = {
+		cpu_to_le16(0x0409), /* en-us */
+		STR_INTERFACE_,
+	},
+};
+
+#define STR_INTERFACE strings.lang0.str1
 
 static uint32_t rng_prev = 0;
 static uint32_t stupid_random_u32() {
@@ -60,6 +221,36 @@ static int _usleep(long usec)
 
     return res;
 }
+
+static void write_str_to_file(const char* fpath, const char* val)
+{
+    FILE* f = fopen(fpath, "wb+");
+    if (f)
+    {
+        fputs(val, f);
+        fflush(f);
+        fclose(f);
+    }
+    else
+    {
+        printf("Failed to open `%s`!\n", fpath);
+    }
+}
+
+static void write_hex16_to_file(const char* fpath, uint16_t val)
+{
+    char tmp[8];
+    snprintf(tmp, sizeof(tmp), "0x%x", val);
+    write_str_to_file(fpath, tmp);
+}
+
+static void write_decimal_to_file(const char* fpath, uint16_t val)
+{
+    char tmp[32];
+    snprintf(tmp, sizeof(tmp), "%i", val);
+    write_str_to_file(fpath, tmp);
+}
+
 
 #if 0
 
@@ -494,6 +685,40 @@ int libusbd_impl_init(libusbd_ctx_t* pCtx)
     memset(pCtx->pLinuxCtx, 0, sizeof(*pCtx->pLinuxCtx));
 
     libusbd_linux_ctx_t* pImplCtx = pCtx->pLinuxCtx;
+    
+    mkdir("/sys/kernel/config/usb_gadget/libusbd", 0777);
+    mkdir("/sys/kernel/config/usb_gadget/libusbd/functions", 0777);
+    mkdir("/sys/kernel/config/usb_gadget/libusbd/functions/ffs.usb0", 0777);
+    //mkdir("/sys/kernel/config/usb_gadget/libusbd/functions/ncm.usb0", 0777);
+    mkdir("/sys/kernel/config/usb_gadget/libusbd/strings", 0777);
+    mkdir("/sys/kernel/config/usb_gadget/libusbd/strings/0x0409", 0777);
+    mkdir("/sys/kernel/config/usb_gadget/libusbd/configs", 0777);
+    mkdir("/sys/kernel/config/usb_gadget/libusbd/configs/c.1", 0777);
+    mkdir("/sys/kernel/config/usb_gadget/libusbd/configs/c.1/strings", 0777);
+    mkdir("/sys/kernel/config/usb_gadget/libusbd/configs/c.1/strings/0x0409", 0777);
+    
+    write_hex16_to_file("/sys/kernel/config/usb_gadget/libusbd/idVendor", 0x1d6b);
+    write_hex16_to_file("/sys/kernel/config/usb_gadget/libusbd/idProduct", 0x0052);
+    write_hex16_to_file("/sys/kernel/config/usb_gadget/libusbd/bcdDevice", 0x0100);
+    write_hex16_to_file("/sys/kernel/config/usb_gadget/libusbd/bcdUSB", 0x0200);
+    write_hex16_to_file("/sys/kernel/config/usb_gadget/libusbd/bDeviceClass", 0x0);
+    write_hex16_to_file("/sys/kernel/config/usb_gadget/libusbd/bDeviceSubClass", 0x0);
+    write_hex16_to_file("/sys/kernel/config/usb_gadget/libusbd/bDeviceProtocol", 0x0);
+    write_decimal_to_file("/sys/kernel/config/usb_gadget/libusbd/bMaxPacketSize0", 64);
+    write_decimal_to_file("/sys/kernel/config/usb_gadget/libusbd/configs/c.1/MaxPower", 50);
+    write_hex16_to_file("/sys/kernel/config/usb_gadget/libusbd/configs/c.1/bmAttributes", 0xc0);
+    
+    write_str_to_file("/sys/kernel/config/usb_gadget/libusbd/UDC", "");
+    
+    symlink("/sys/kernel/config/usb_gadget/libusbd/functions/ffs.usb0", "/sys/kernel/config/usb_gadget/libusbd/configs/c.1/ffs.usb0");
+    
+    mkdir("/dev/ffs-usb0", 0777);
+    system("mount -t functionfs usb0 /dev/ffs-usb0");
+    
+    int fd = open("/dev/ffs-usb0/ep0", O_RDWR);
+    write(fd, &descriptors, sizeof(descriptors));
+    write(fd, &strings, sizeof(strings));
+    //fclose(f);
 
 #if 0
     // TODO: A lot more error checking
@@ -657,31 +882,50 @@ int libusbd_impl_config_finalize(libusbd_ctx_t* pCtx)
     //io_iterator_t iter = 0;
     //kern_return_t open_ret;
     libusbd_linux_ctx_t* pImplCtx = pCtx->pLinuxCtx;
-
-#if 0
+    
     if (pCtx->vid)
-        alt_IOUSBDeviceDescriptionSetVendorID(pImplCtx->desc, pCtx->vid);
+        write_hex16_to_file("/sys/kernel/config/usb_gadget/libusbd/idVendor", pCtx->vid);
+    
     if (pCtx->pid)
-        alt_IOUSBDeviceDescriptionSetProductID(pImplCtx->desc, pCtx->pid);
-    if (pCtx->did)
-        alt_IOUSBDeviceDescriptionSetVersion(pImplCtx->desc, pCtx->did);
-    alt_IOUSBDeviceDescriptionSetClass(pImplCtx->desc, pCtx->bClass);
-    alt_IOUSBDeviceDescriptionSetSubClass(pImplCtx->desc, pCtx->bClass);
-    alt_IOUSBDeviceDescriptionSetProtocol(pImplCtx->desc, pCtx->bClass);
+        write_hex16_to_file("/sys/kernel/config/usb_gadget/libusbd/idProduct", pCtx->pid);
 
+    if (pCtx->did)
+        write_hex16_to_file("/sys/kernel/config/usb_gadget/libusbd/bcdDevice", pCtx->did);
+
+    write_hex16_to_file("/sys/kernel/config/usb_gadget/libusbd/bcdUSB", 0x0200);
+    write_hex16_to_file("/sys/kernel/config/usb_gadget/libusbd/bDeviceClass", pCtx->bClass);
+    write_hex16_to_file("/sys/kernel/config/usb_gadget/libusbd/bDeviceSubClass", pCtx->bSubclass);
+    write_hex16_to_file("/sys/kernel/config/usb_gadget/libusbd/bDeviceProtocol", pCtx->bProtocol);
+    write_decimal_to_file("/sys/kernel/config/usb_gadget/libusbd/bMaxPacketSize0", 64);
+    write_decimal_to_file("/sys/kernel/config/usb_gadget/libusbd/configs/c.1/MaxPower", 50);
+    write_hex16_to_file("/sys/kernel/config/usb_gadget/libusbd/configs/c.1/bmAttributes", 0xc0);
+    
     if (pCtx->pManufacturerStr) {
-        CFStringRef str = CFStringCreateWithCString(NULL, pCtx->pManufacturerStr, 0);
-        alt_IOUSBDeviceDescriptionSetManufacturerString(pImplCtx->desc, str);
+        write_str_to_file("/sys/kernel/config/usb_gadget/libusbd/strings/0x0409/manufacturer", pCtx->pManufacturerStr);
     }
     if (pCtx->pProductStr) {
-        CFStringRef str = CFStringCreateWithCString(NULL, pCtx->pProductStr, 0);
-        alt_IOUSBDeviceDescriptionSetProductString(pImplCtx->desc, str);
+        write_str_to_file("/sys/kernel/config/usb_gadget/libusbd/strings/0x0409/product", pCtx->pProductStr);
     }
     if (pCtx->pSerialStr) {
-        CFStringRef str = CFStringCreateWithCString(NULL, pCtx->pSerialStr, 0);
-        alt_IOUSBDeviceDescriptionSetSerialString(pImplCtx->desc, str);
+        write_str_to_file("/sys/kernel/config/usb_gadget/libusbd/strings/0x0409/serialnumber", pCtx->pSerialStr);
+    }
+    
+    // Bind the configuration
+    DIR* d;
+    struct dirent *dir;
+    d = opendir("/sys/class/udc");
+    if (d) {
+        while ((dir = readdir(d)) != NULL) {
+            if (!strcmp(dir->d_name, ".") || !strcmp(dir->d_name, "..")) continue;
+
+            write_str_to_file("/sys/kernel/config/usb_gadget/libusbd/UDC", dir->d_name);
+            printf("Binding to port: %s\n", dir->d_name);
+            break;
+        }
+        closedir(d);
     }
 
+#if 0
     if (alt_IOUSBDeviceControllerSetDescription(pImplCtx->controller, pImplCtx->desc)) {
         return LIBUSBD_NONDESCRIPT_ERROR;
     }
