@@ -48,12 +48,14 @@ pub struct EpFuture<'a>
     context: &'a Context,
     iface_num: u8, 
     ep: u64,
+    timeout_ms: u64,
+    time_waited: u64,
 }
 
 impl Future for EpFuture<'_> 
 {
     type Output = Result<i32>;
-    fn poll(self: Pin<&mut Self>, ctx: &mut core::task::Context<'_>) -> Poll<Self::Output> 
+    fn poll(mut self: Pin<&mut Self>, ctx: &mut core::task::Context<'_>) -> Poll<Self::Output> 
     {
         let result = self.context.ep_transfer_done(self.iface_num, self.ep);
         match result
@@ -68,8 +70,14 @@ impl Future for EpFuture<'_>
                     thread::sleep(Duration::from_millis(1));
                     waker.wake();
                 });
+                self.as_mut().time_waited += 1;
 
-                Poll::Pending
+                if self.time_waited >= self.timeout_ms {
+                    Poll::Ready(Err(error::from_libusbd(libusbd_error_LIBUSBD_TIMEOUT)))
+                }
+                else {
+                    Poll::Pending
+                }                
             },
         }
     }
@@ -317,7 +325,7 @@ impl Context {
     pub fn ep_write_async<'a>(&'a self, iface_num: u8, ep: u64, data_in: &[u8], timeout_ms: u64) -> Result<EpFuture<'a>> {
         try_unsafe!(libusbd_ep_write_start(self.context, iface_num, ep, data_in.as_ptr() as *const c_void, data_in.len() as u32, timeout_ms));
 
-        Ok(EpFuture { context: self, iface_num: iface_num, ep: ep })
+        Ok(EpFuture { context: self, iface_num: iface_num, ep: ep, timeout_ms: timeout_ms, time_waited: 0 })
     }
 
     /// Schedules a read transaction on an endpoint.
@@ -327,7 +335,7 @@ impl Context {
     pub fn ep_read_async<'a>(&'a self, iface_num: u8, ep: u64, len: u32, timeout_ms: u64) -> Result<EpFuture<'a>> {
         try_unsafe!(libusbd_ep_read_start(self.context, iface_num, ep, len, timeout_ms));
 
-        Ok(EpFuture { context: self, iface_num: iface_num, ep: ep })
+        Ok(EpFuture { context: self, iface_num: iface_num, ep: ep, timeout_ms: timeout_ms, time_waited: 0 })
     }
 
 }

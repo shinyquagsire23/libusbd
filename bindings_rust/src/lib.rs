@@ -5,6 +5,7 @@
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 pub use context::{Context, EpDir, EpType};
+pub use error::{Error};
 
 #[cfg(test)]
 mod tests {
