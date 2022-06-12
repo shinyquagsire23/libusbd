@@ -145,7 +145,20 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
     // 0xE generic usb
     // 0xF rejected?
     // 0x10-13 rejected?
-    let device_type: u8 = 0xc;
+    let device_type: u8 = 0x3;
+    let body_color: [u8; 3] = [0xac, 0xac, 0xac];
+    let button_color: [u8; 3] = [0x46, 0x46, 0x46];
+    let leftgrip_color: [u8; 3] = [0xff, 0xff, 0xff];
+    let rightgrip_color: [u8; 3] = [0xff, 0xff, 0xff];
+    let mut gyro_data: [u8; 36] = [0; 36];//[0x4e, 0xfd, 0x9f, 0xff, 0xf0, 0x0f, 0xe4, 0xff, 0x0d, 0x00, 0x04, 0x00, 0x4e, 0xfd, 0xa2, 0xff, 0xf2, 0x0f, 0xe1, 0xff, 0xf0, 0xff, 0xf4, 0xff, 0x4c, 0xfd, 0xa4, 0xff, 0xf1, 0x0f, 0xe0, 0xff, 0xb5, 0xff, 0xd1, 0xff];
+
+    let mut accel_x: i16 = -688;
+    let mut accel_y: i16 = -100;
+    let mut accel_z: i16 = 4038;
+
+    let mut gyro_x: i16 = 0;
+    let mut gyro_y: i16 = 0;
+    let mut gyro_z: i16 = 0;
 
     let mut should_stream_input = false;
     let mut keyboard_send: [u8; 8] = [0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0];
@@ -153,7 +166,10 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
     let mut mouse_btns: u8 = 0;
 
     let mut controller_send: [u8; 64] = [0x0; 64];
-    let mut controller_recv: [u8; 64] = [0x0; 64];
+
+    let mut dx = 0;
+    let mut dy = 0;
+    let mut mouse_idle = 0;
 
     loop {
         controller_send[0] = 0x81;
@@ -242,16 +258,18 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
             //println!("{} {}", event.scancode, event.pressed);
         }
 
-        let mut dx = 0;
-        let mut dy = 0;
         let mut wheel_dx: i16 = 0;
         let mut wheel_dy: i16 = 0;
+
+        mouse_idle += 1;
 
         for _i in 0..100 {
             let event = match rx_mouse.try_recv() {
                 Ok(event) => event,
                 _ => { break; },
             };
+
+            
 
             let btn: u8 = event.button;
 
@@ -265,6 +283,10 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
             dx += event.dx;
             dy += event.dy;
 
+            if event.dx != 0 || event.dy != 0 {
+                mouse_idle = 0;
+            }
+
             wheel_dx += event.wheel_dx as i16;
             wheel_dy += event.wheel_dy as i16;
 
@@ -274,6 +296,11 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
             mouse_needs_update = true;
 
             //println!("{} {}", event.scancode, event.pressed);
+        }
+
+        if mouse_idle >= 4 {
+            dx = 0;
+            dy = 0;
         }
 
         mouse_send[1] = mouse_btns;
@@ -294,10 +321,10 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
 
         // map keyboard to buttons
         let mut controller_buttons: u32 = 0x008000; // charging grip?
-        let mut stick_1_x: u16 = 0x7C9;
-        let mut stick_1_y: u16 = 0x842;
-        let mut stick_2_x: u16 = 0x7C9;
-        let mut stick_2_y: u16 = 0x842;
+        let mut stick_1_x: u16 = 0x800;
+        let mut stick_1_y: u16 = 0x800;
+        let mut stick_2_x: u16 = 0x800;
+        let mut stick_2_y: u16 = 0x800;
 
         for j in 0..6 {
             let k = keyboard_send[2+j];
@@ -341,10 +368,13 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
                 0x1B => 0x080000, // kb x -> a
                 0x1D => 0x040000, // kb z -> b
 
-                0x1A => 0x010000, // kb w -> n64 c-up/y
+                0x06 => 0x010000, // kb c -> y
+                0x19 => 0x020000, // kb v -> x
+
+                /*0x1A => 0x010000, // kb w -> n64 c-up/y
                 0x04 => 0x020000, // kb a -> n64 c-left/x
                 0x16 => 0x800000, // kb s -> n64 c-down/zr
-                0x07 => 0x000100, // kb d -> n64 c-right/minus
+                0x07 => 0x000100, // kb d -> n64 c-right/minus*/
 
                 0x1e => 0x100000, // kb 1 -> SR
                 0x1f => 0x200000, // kb 2 -> SL
@@ -360,20 +390,126 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
 
                 0x15 => 0x000080, // kb r -> ZL
                 0x09 => 0x800000, // kb f -> ZR
+
+                0x2d => 0x000100, // kb minus -> minus
+                0x2e => 0x000200, // kb plus -> plus
                 _ => 0,
             };
-            
-        }    
+
+            match k {
+                0x1A => { // kb w -> lstick up
+                    stick_1_y = 0x800 + 0x600;
+                }, 
+                0x04 => { // kb a -> lstick left
+                    stick_1_x = 0x800 - 0x600;
+                },
+                0x16 => { // kb s -> lstick down
+                    stick_1_y = 0x800 - 0x600;
+                }, 
+                0x07 => { // kb d -> lstick right
+                    stick_1_x = 0x800 + 0x600;
+                }, 
+
+                0x0C => { // kb i -> rstick up
+                    stick_2_y = 0x800 + 0x600;
+                }, 
+                0x0D => { // kb j -> rstick left
+                    stick_2_x = 0x800 - 0x600;
+                },
+                0x0E => { // kb k -> rstick down
+                    stick_2_y = 0x800 - 0x600;
+                }, 
+                0x0F => { // kb l -> rstick right
+                    stick_2_x = 0x800 + 0x600;
+                }, 
+
+                0x18 => { // u
+                    gyro_y += 1;
+                },
+                0x12 => { // o
+                    gyro_y -= 1;
+                },
+
+                _ => {},
+            }
+        }
+
+        let dx_upscale = ((dx as i32) << 3).min(0x600).max(-0x600);
+        let dy_upscale = ((dy as i32) << 3).min(0x600).max(-0x600);
+
+        //stick_2_x = (((stick_2_x as i32).saturating_add(dx_upscale)) & 0xFFF) as u16;
+        //stick_2_y = (((stick_2_y as i32).saturating_add(-dy_upscale)) & 0xFFF) as u16;
+
+        stick_2_x &= 0xFFF;
+        stick_2_y &= 0xFFF;
+
+        //gyro_z = 0x600;
+        
+        //gyro_z = 0;
+        gyro_x = 16;
+        gyro_y = 16;
+        gyro_z = 0;
+
+/*
+        gyro_y = 0xF3;
+
+        if dx_upscale < 0 {
+            gyro_z = 0x4600;
+        }
+        else if dx_upscale > 0 {
+            gyro_z = -0x4600;
+        }
+        gyro_z = gyro_z.wrapping_add(1);
+*/
+        
+        let old_gyro_z = gyro_z;
+
+        //gyro_z = dx_upscale as i16;
+
+
+        //gyro_z = -0x100;
+
+        
+
+        for i in 0..3 {
+            gyro_data[(i*12)+0] = ((accel_x as u16) & 0xFF) as u8;
+            gyro_data[(i*12)+1] = (((accel_x as u16) >> 8) & 0xFF) as u8;
+            gyro_data[(i*12)+2] = ((accel_y as u16) & 0xFF) as u8;
+            gyro_data[(i*12)+3] = (((accel_y as u16) >> 8) & 0xFF) as u8;
+            gyro_data[(i*12)+4] = ((accel_z as u16) & 0xFF) as u8;
+            gyro_data[(i*12)+5] = (((accel_z as u16) >> 8) & 0xFF) as u8;
+
+            if i == 0 {
+                gyro_z = 0;
+            }
+            if i == 1 {
+                gyro_z = 0;
+            }
+            if i == 2 {
+                gyro_z = old_gyro_z;
+            }
+
+            //gyro_z += 10;
+            gyro_data[(i*12)+6] = ((gyro_x as u16) & 0xFF) as u8;
+            gyro_data[(i*12)+7] = (((gyro_x as u16) >> 8) & 0xFF) as u8;
+            gyro_data[(i*12)+8] = ((gyro_y as u16) & 0xFF) as u8;
+            gyro_data[(i*12)+9] = (((gyro_y as u16) >> 8) & 0xFF) as u8;
+            gyro_data[(i*12)+10] = ((gyro_z as u16) & 0xFF) as u8;
+            gyro_data[(i*12)+11] = (((gyro_z as u16) >> 8) & 0xFF) as u8;
+        }
+
+        gyro_z = old_gyro_z;
+
+        //println!("{:03x?} {:03x?} {:03x?} {:03x?}", stick_2_x, stick_2_y, dx_upscale, dy_upscale);
 
 
         let elapsed = last_loop.elapsed();
         last_loop = Instant::now();
-        if elapsed.as_millis() != 0 {
+        if elapsed.as_millis() != 0 && elapsed.as_millis() > 16 {
             println!("{:?}ms", elapsed.as_millis());
         }
 
-        let mut recv_future_1 = None;
-        recv_future_1 = match context.ep_read_async(iface_num, ep_in, 64, 100)
+        let recv_future_1 = match context.ep_read_async(iface_num, ep_in, 64, 10)
         {
             Ok(f) => Some(f),
             Err(err) => {
@@ -386,7 +522,7 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
 
         let mut send_future_1 = None;
         if controller_needs_update {
-            send_future_1 = match context.ep_write_async(iface_num, ep_out, &controller_send, 100)
+            send_future_1 = match context.ep_write_async(iface_num, ep_out, &controller_send, 20)
             {
                 Ok(f) => Some(f),
                 Err(err) => {
@@ -408,7 +544,7 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
                     //continue;
                 },
                 Ok(_n) => {
-                    //println!("Sent {:?} bytes: {:02x?}", _n, controller_send);
+                    println!("Sent {:?} bytes: {:02x?}", _n, controller_send);
                 },
             };
         }
@@ -459,12 +595,16 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
                 controller_send[4] = ((controller_buttons >> 8) & 0xFF) as u8; // buttons
                 controller_send[5] = ((controller_buttons >> 0) & 0xFF) as u8; // buttons
                 controller_send[6] = (stick_1_x & 0xFF) as u8; // sticks
-                controller_send[7] = (((stick_1_x >> 8) & 0xF) | (stick_1_y & 0xF)) as u8; // sticks
+                controller_send[7] = (((stick_1_x >> 8) & 0xF) | ((stick_1_y & 0xF) << 4)) as u8; // sticks
                 controller_send[8] = ((stick_1_y >> 4) & 0xFF) as u8; // sticks
                 controller_send[9] = (stick_2_x & 0xFF) as u8; // sticks 2
-                controller_send[10] = (((stick_2_x >> 8) & 0xF) | (stick_2_y & 0xF)) as u8; // sticks 2
+                controller_send[10] = (((stick_2_x >> 8) & 0xF) | ((stick_2_y & 0xF) << 4)) as u8; // sticks 2
                 controller_send[11] = ((stick_2_y >> 4) & 0xFF) as u8; // sticks 2
                 controller_send[12] = 8; // vibration input report
+
+                for i in 0..36 {
+                    controller_send[13+i] = gyro_data[i];
+                }
 
                 last_input = Instant::now();
                 pkt_increment = pkt_increment.wrapping_add(input_elapsed);
@@ -531,6 +671,10 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
                 controller_send[10] = (((stick_2_x >> 8) & 0xF) | (stick_2_y & 0xF)) as u8; // sticks 2
                 controller_send[11] = ((stick_2_y >> 4) & 0xFF) as u8; // sticks 2
                 controller_send[12] = 8; // vibration input report
+
+                for i in 0..36 {
+                    controller_send[13+i] = gyro_data[i];
+                }
 
                 last_input = Instant::now();
                 pkt_increment = pkt_increment.wrapping_add(input_elapsed);
@@ -619,14 +763,35 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
                                 subcmd_reply[5+i] = dat_6000[i];
                             }
                         }
+                        else if addr == 0x6020 && len == 0x18 {
+                            // IMU calib and factory stuff
+                            // https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/spi_flash_notes.md
+                            let dat: [u8; 0x18] = [0x73, 0x00, 0x9d, 0xff, 0x8c, 0x01,   0x00, 0x40, 0x00, 0x40, 0x00, 0x40,   0xde, 0xff, 0x0d, 0x00, 0x08, 0x00,    0xe7, 0x3b, 0xe7, 0x3b, 0xe7, 0x3b];//[0xff;0x18];
+                            for i in 0..0x18 {
+                                subcmd_reply[5+i] = dat[i];
+                            }
+                        }
+                        else if addr == 0x603D && len == 0x19 {
+                            // Stick calib
+                            // x/y max above: 0x600
+                            // x/y max below: 0x600
+                            // x/y center: 0x800
+                            let dat: [u8; 0x19] = [0x00, 0x06, 0x60, 0x00, 0x08, 0x80, 0x00, 0x06, 0x60,    0x00, 0x06, 0x60, 0x00, 0x08, 0x80, 0x00, 0x06, 0x60,   0xff, body_color[0], body_color[1], body_color[2], button_color[0], button_color[1], button_color[2]];
+                            //let dat: [u8; 0x19] = [0xfe, 0xc5, 0x5e, 0xec, 0x97, 0x77, 0xca, 0x95, 0x5c, 0xff, 0x57, 0x78, 0x0c, 0xc6, 0x5e, 0xb7, 0x95, 0x65, 0xff, 0x32, 0x32, 0x32, 0xff, 0xff, 0xff];
+                            for i in 0..0x19 {
+                                subcmd_reply[5+i] = dat[i];
+                            }
+                        }
                         else if addr == 0x6050 && len == 0xD {
-                            let dat_6050: [u8; 0xD] = [0xac, 0xac, 0xac, 0x46, 0x46, 0x46, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01];
+                            let dat_6050: [u8; 0xD] = [body_color[0], body_color[1], body_color[2], button_color[0], button_color[1], button_color[2], leftgrip_color[0], leftgrip_color[1], leftgrip_color[2], rightgrip_color[0], rightgrip_color[1], rightgrip_color[2], 0x01];
                             for i in 0..0xD {
                                 subcmd_reply[5+i] = dat_6050[i];
                             }
                         }
                         else if addr == 0x6080 && len == 0x18 {
-                            let dat: [u8; 0x18] = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x0f, 0x70, 0x5d, 0x50, 0x30, 0xf3, 0x38, 0x84, 0x43, 0x38, 0x84, 0x43, 0x33, 0x39, 0x93, 0xcd, 0xd6, 0x6c];
+                            // IMU horizontal offsets (JC sideways)
+                            // Dead zone is 0
+                            let dat: [u8; 0x18] = [0x50, 0xfd, 0x00, 0x00, 0xc6, 0x0f,   0x0f, 0x70, 0x5d, 0x50,   0x00, 0xf0, 0x38, 0x84, 0x43, 0x38, 0x84, 0x43, 0x33, 0x39, 0x93, 0xcd, 0xd6, 0x6c];
                             for i in 0..0x18 {
                                 subcmd_reply[5+i] = dat[i];
                             }
@@ -638,20 +803,8 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
                             }
                         }
                         else if addr == 0x8010 && len == 0x18 {
+                            // User analog stick calibs
                             let dat: [u8; 0x18] = [0xff; 0x18];
-                            for i in 0..0x18 {
-                                subcmd_reply[5+i] = dat[i];
-                            }
-                        }
-                        else if addr == 0x603D && len == 0x19 {
-                            //let dat: [u8; 0x19] = [0x7c, 0xd5, 0x59, 0xca, 0x37, 0x84, 0x45, 0x95, 0x57, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xac, 0xac, 0xac, 0x46, 0x46, 0x46];
-                            let dat: [u8; 0x19] = [0xfe, 0xc5, 0x5e, 0xec, 0x97, 0x77, 0xca, 0x95, 0x5c, 0xff, 0x57, 0x78, 0x0c, 0xc6, 0x5e, 0xb7, 0x95, 0x65, 0xff, 0x32, 0x32, 0x32, 0xff, 0xff, 0xff];
-                            for i in 0..0x19 {
-                                subcmd_reply[5+i] = dat[i];
-                            }
-                        }
-                        else if addr == 0x6020 && len == 0x18 {
-                            let dat: [u8; 0x18] = [0x73, 0x00, 0x9d, 0xff, 0x8c, 0x01, 0x00, 0x40, 0x00, 0x40, 0x00, 0x40, 0xde, 0xff, 0x0d, 0x00, 0x08, 0x00, 0xe7, 0x3b, 0xe7, 0x3b, 0xe7, 0x3b];//[0xff;0x18];
                             for i in 0..0x18 {
                                 subcmd_reply[5+i] = dat[i];
                             }
