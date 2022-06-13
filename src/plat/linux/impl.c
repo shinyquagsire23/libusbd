@@ -33,6 +33,7 @@
 #define le32_to_cpu(x)  le32toh(x)
 #define le16_to_cpu(x)  le16toh(x)
 
+#if 1
 static const struct {
 	struct usb_functionfs_descs_head_v2 header;
 	__le32 fs_count;
@@ -147,6 +148,7 @@ static const struct {
 		},
 	},
 };
+#endif
 
 #define STR_INTERFACE_ "Source/Sink"
 
@@ -714,10 +716,20 @@ int libusbd_impl_init(libusbd_ctx_t* pCtx)
     
     mkdir("/dev/ffs-usb0", 0777);
     system("mount -t functionfs usb0 /dev/ffs-usb0");
+
+    pImplCtx->write_descs = malloc(0x10000); // TODO check
+    memset(pImplCtx->write_descs, 0, 0x10000);
+
+    pImplCtx->write_descs_next = pImplCtx->write_descs;
+
+    pImplCtx->write_header->header.magic = cpu_to_le32(FUNCTIONFS_DESCRIPTORS_MAGIC_V2);
+    pImplCtx->write_header->header.flags = cpu_to_le32(FUNCTIONFS_HAS_FS_DESC | FUNCTIONFS_HAS_HS_DESC | FUNCTIONFS_HAS_SS_DESC);
+    //pImplCtx->write_header->header.length = cpu_to_le32(sizeof descriptors);
+
+    pImplCtx->write_descs_sz += sizeof(libusbd_linux_writeheader_t);
+    pImplCtx->write_descs_next = pImplCtx->write_descs + pImplCtx->write_descs_sz;
     
-    int fd = open("/dev/ffs-usb0/ep0", O_RDWR);
-    write(fd, &descriptors, sizeof(descriptors));
-    write(fd, &strings, sizeof(strings));
+    pImplCtx->ep0_fd = open("/dev/ffs-usb0/ep0", O_RDWR);
     //fclose(f);
 
 #if 0
@@ -869,6 +881,9 @@ int libusbd_impl_free(libusbd_ctx_t* pCtx)
 
     IONotificationPortDestroy(pImplCtx->notification_port);
 #endif
+    free(pImplCtx->write_descs);
+    pImplCtx->write_descs = NULL;
+
     free(pImplCtx);
     pCtx->pLinuxCtx = NULL;
 
@@ -908,21 +923,6 @@ int libusbd_impl_config_finalize(libusbd_ctx_t* pCtx)
     }
     if (pCtx->pSerialStr) {
         write_str_to_file("/sys/kernel/config/usb_gadget/libusbd/strings/0x0409/serialnumber", pCtx->pSerialStr);
-    }
-    
-    // Bind the configuration
-    DIR* d;
-    struct dirent *dir;
-    d = opendir("/sys/class/udc");
-    if (d) {
-        while ((dir = readdir(d)) != NULL) {
-            if (!strcmp(dir->d_name, ".") || !strcmp(dir->d_name, "..")) continue;
-
-            write_str_to_file("/sys/kernel/config/usb_gadget/libusbd/UDC", dir->d_name);
-            printf("Binding to port: %s\n", dir->d_name);
-            break;
-        }
-        closedir(d);
     }
 
 #if 0
@@ -1076,6 +1076,161 @@ int libusbd_impl_iface_finalize(libusbd_ctx_t* pCtx, uint8_t iface_num)
 #endif
     pCtx->aInterfaces[iface_num].finalized = true;
 
+    
+
+    bool all_finalized = true;
+    for (int i = 0; i < pCtx->bNumInterfaces; i++)
+    {
+        if (!pCtx->aInterfaces[i].finalized)
+        {
+            all_finalized = false;
+        }
+    }
+
+    if (all_finalized)
+    {
+        uint8_t epNum = 1;
+        uint16_t cnt = 0;
+        for (int i = 0; i < pCtx->bNumInterfaces; i++)
+        {
+            struct usb_interface_descriptor* pDescFFS = &pIface->descFFS;
+            libusbd_linux_iface_t* pIfaceIter = &pImplCtx->aInterfaces[i];
+            libusbd_iface_t* pIfaceIterSuper = &pCtx->aInterfaces[i];
+
+            pDescFFS->bLength = sizeof(*pDescFFS);
+            pDescFFS->bDescriptorType = USB_DT_INTERFACE;
+            pDescFFS->bInterfaceNumber = i;
+            pDescFFS->bNumEndpoints = pIfaceIter->bNumEndpoints;
+            pDescFFS->bInterfaceClass = pIfaceIterSuper->bClass;
+            pDescFFS->bInterfaceSubClass = pIfaceIterSuper->bSubclass;
+            pDescFFS->bInterfaceProtocol = pIfaceIterSuper->bProtocol;
+            pDescFFS->iInterface = 1;
+
+            memcpy(pImplCtx->write_descs_next, pDescFFS, sizeof(*pDescFFS));
+            pImplCtx->write_descs_sz += sizeof(*pDescFFS);
+            pImplCtx->write_descs_next = pImplCtx->write_descs + pImplCtx->write_descs_sz;
+            cnt++;
+
+            // TODO extra descriptors
+
+            for (int j = 0; j < pIfaceIter->bNumEndpoints; j++)
+            {
+                struct usb_endpoint_descriptor_no_audio* pEpFFS = &pIfaceIter->aEndpointsFFS[j];
+                pEpFFS->bLength = sizeof(*pEpFFS);
+                pEpFFS->bDescriptorType = USB_DT_ENDPOINT;
+                pEpFFS->bEndpointAddress |= epNum; // epNum // TODO
+                pEpFFS->bmAttributes = USB_ENDPOINT_XFER_BULK; // TODO
+                pEpFFS->wMaxPacketSize = 0;//pIfaceIter->aEndpoints[j].maxPktSize & 0xFFFF;
+                pEpFFS->bInterval = 1;
+
+                epNum += 1;
+
+                memcpy(pImplCtx->write_descs_next, pEpFFS, sizeof(*pEpFFS));
+                pImplCtx->write_descs_sz += sizeof(*pEpFFS);
+                pImplCtx->write_descs_next = pImplCtx->write_descs + pImplCtx->write_descs_sz;
+                cnt++;
+            }
+        }
+
+        printf("%x\n", cnt);
+        
+
+        pImplCtx->write_header->fs_count = cpu_to_le32(cnt);
+
+        cnt = 0;
+        for (int i = 0; i < pCtx->bNumInterfaces; i++)
+        {
+            struct usb_interface_descriptor* pDescFFS = &pIface->descFFS;
+            libusbd_linux_iface_t* pIfaceIter = &pImplCtx->aInterfaces[i];
+            libusbd_iface_t* pIfaceIterSuper = &pCtx->aInterfaces[i];
+
+            memcpy(pImplCtx->write_descs_next, pDescFFS, sizeof(*pDescFFS));
+            pImplCtx->write_descs_sz += sizeof(*pDescFFS);
+            pImplCtx->write_descs_next = pImplCtx->write_descs + pImplCtx->write_descs_sz;
+            cnt++;
+
+            // TODO extra descriptors
+
+            for (int j = 0; j < pIfaceIter->bNumEndpoints; j++)
+            {
+                struct usb_endpoint_descriptor_no_audio* pEpFFS = &pIfaceIter->aEndpointsFFS[j];
+
+                pEpFFS->wMaxPacketSize = cpu_to_le16(pIfaceIter->aEndpoints[j].maxPktSize & 0xFFFF);
+
+                memcpy(pImplCtx->write_descs_next, pEpFFS, sizeof(*pEpFFS));
+                pImplCtx->write_descs_sz += sizeof(*pEpFFS);
+                pImplCtx->write_descs_next = pImplCtx->write_descs + pImplCtx->write_descs_sz;
+                cnt++;
+            }
+        }
+
+        pImplCtx->write_header->hs_count = cpu_to_le32(cnt);
+        
+        cnt = 0;
+#if 0
+        for (int i = 0; i < pCtx->bNumInterfaces; i++)
+        {
+            struct usb_interface_descriptor* pDescFFS = &pIface->descFFS;
+            libusbd_linux_iface_t* pIfaceIter = &pImplCtx->aInterfaces[i];
+            libusbd_iface_t* pIfaceIterSuper = &pCtx->aInterfaces[i];
+
+            memcpy(pImplCtx->write_descs_next, pDescFFS, sizeof(*pDescFFS));
+            pImplCtx->write_descs_sz += sizeof(*pDescFFS);
+            pImplCtx->write_descs_next = pImplCtx->write_descs + pImplCtx->write_descs_sz;
+            cnt++;
+
+            // TODO extra descriptors
+
+            for (int j = 0; j < pIfaceIter->bNumEndpoints; j++)
+            {
+                struct usb_endpoint_descriptor_no_audio* pEpFFS = &pIfaceIter->aEndpointsFFS[j];
+
+                pEpFFS->wMaxPacketSize = cpu_to_le16(512);
+
+                memcpy(pImplCtx->write_descs_next, pEpFFS, sizeof(*pEpFFS));
+                pImplCtx->write_descs_sz += sizeof(*pEpFFS);
+                pImplCtx->write_descs_next = pImplCtx->write_descs + pImplCtx->write_descs_sz;
+                cnt++;
+
+                struct usb_ss_ep_comp_descriptor sink_comp = {
+                    .bLength = USB_DT_SS_EP_COMP_SIZE,
+                    .bDescriptorType = USB_DT_SS_ENDPOINT_COMP,
+                    .bMaxBurst = 0,
+                    .bmAttributes = 0,
+                    .wBytesPerInterval = 0,
+                };
+
+                memcpy(pImplCtx->write_descs_next, pEpFFS, sizeof(*pEpFFS));
+                pImplCtx->write_descs_sz += sizeof(*pEpFFS);
+                pImplCtx->write_descs_next = pImplCtx->write_descs + pImplCtx->write_descs_sz;
+                cnt++;
+            }
+        }
+#endif
+        pImplCtx->write_header->ss_count = cpu_to_le32(cnt);
+
+        pImplCtx->write_header->header.length = cpu_to_le32(pImplCtx->write_descs_sz);
+        write(pImplCtx->ep0_fd, pImplCtx->write_descs, pImplCtx->write_descs_sz);
+        //write(pImplCtx->ep0_fd, &descriptors, sizeof(descriptors));
+        write(pImplCtx->ep0_fd, &strings, sizeof(strings));
+
+
+        // Bind the configuration
+        DIR* d;
+        struct dirent *dir;
+        d = opendir("/sys/class/udc");
+        if (d) {
+            while ((dir = readdir(d)) != NULL) {
+                if (!strcmp(dir->d_name, ".") || !strcmp(dir->d_name, "..")) continue;
+
+                write_str_to_file("/sys/kernel/config/usb_gadget/libusbd/UDC", dir->d_name);
+                printf("Binding to port: %s\n", dir->d_name);
+                break;
+            }
+            closedir(d);
+        }
+    }
+
     return LIBUSBD_SUCCESS;
 }
 
@@ -1140,6 +1295,10 @@ int libusbd_impl_iface_add_endpoint(libusbd_ctx_t* pCtx, uint8_t iface_num, uint
 
     libusbd_linux_ep_t* pEp = &pIface->aEndpoints[pIface->bNumEndpoints];
     pEp->maxPktSize = maxPktSize;
+
+    struct usb_endpoint_descriptor_no_audio* pEpFFS = &pIface->aEndpointsFFS[pIface->bNumEndpoints];
+    pEpFFS->bmAttributes = type;
+    pEpFFS->bEndpointAddress = (direction == USB_EP_DIR_IN ? USB_DIR_IN : USB_DIR_OUT); // number gets added later
 
     pIface->bNumEndpoints++;
 
