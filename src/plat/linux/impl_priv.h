@@ -3,6 +3,18 @@
 
 #include <linux/usb/functionfs.h>
 
+typedef struct libusbd_linux_descdata_t libusbd_linux_descdata_t;
+
+typedef struct libusbd_linux_descdata_t
+{
+    void* data;
+    uint64_t size;
+
+    uint8_t idx;
+
+    libusbd_linux_descdata_t* pNext;
+} libusbd_linux_descdata_t;
+
 typedef struct libusbd_linux_writeheader_t
 {
     struct usb_functionfs_descs_head_v2 header;
@@ -15,7 +27,6 @@ typedef struct libusbd_linux_buffer_t
 {
     void* data;
     uint64_t size;
-    uint64_t token;
 } libusbd_linux_buffer_t;
 
 typedef struct libusbd_linux_ep_t
@@ -24,6 +35,8 @@ typedef struct libusbd_linux_ep_t
     uint64_t ep_async_done;
     int32_t last_error;
     uint64_t maxPktSize;
+
+    int fd;
 
     libusbd_linux_buffer_t buffer;
 } libusbd_linux_ep_t;
@@ -46,6 +59,9 @@ typedef struct libusbd_linux_iface_t
     struct usb_interface_descriptor descFFS;
     struct usb_endpoint_descriptor_no_audio aEndpointsFFS[16];
 
+    libusbd_linux_descdata_t* pStandardDescs;
+    libusbd_linux_descdata_t* pNonStandardDescs;
+
 } libusbd_linux_iface_t;
 
 typedef struct libusbd_linux_ctx_t
@@ -53,6 +69,9 @@ typedef struct libusbd_linux_ctx_t
     int configId;
     uint32_t iface_rand32;
 
+    int ep0_running;
+
+    libusbd_linux_buffer_t setup_buffer;
     libusbd_linux_iface_t aInterfaces[16];
 
     union
