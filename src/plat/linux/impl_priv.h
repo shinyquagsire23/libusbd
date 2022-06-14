@@ -2,6 +2,10 @@
 #define _LIBUSBD_PLAT_LINUX_IMPL_PRIV_H
 
 #include <linux/usb/functionfs.h>
+#include <libaio.h>
+#include <pthread.h>
+
+#define IOCB_FLAG_RESFD (1<<0)
 
 typedef struct libusbd_linux_descdata_t libusbd_linux_descdata_t;
 
@@ -37,6 +41,8 @@ typedef struct libusbd_linux_ep_t
     uint64_t maxPktSize;
 
     int fd;
+    struct iocb fd_iocb;
+    int request_in_flight;
 
     libusbd_linux_buffer_t buffer;
 } libusbd_linux_ep_t;
@@ -70,7 +76,11 @@ typedef struct libusbd_linux_ctx_t
     uint32_t iface_rand32;
 
     int ep0_running;
+    int async_running;
     int has_enumerated;
+    int evfd;
+    io_context_t io_ctx;
+    pthread_mutex_t io_mutex;
 
     libusbd_linux_buffer_t setup_buffer;
     libusbd_linux_iface_t aInterfaces[16];

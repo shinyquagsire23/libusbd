@@ -100,7 +100,7 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
     must_succeed!(context.iface_set_subclass(iface_num_mouse, 1));
     must_succeed!(context.iface_set_protocol(iface_num_mouse, 2));
 
-    let hid_desc: [u8; 9] = [0x09, 0x21, 0x11, 0x01, 0x00, 0x01, 0x22, 0x5D, 0x00];
+    let hid_desc: [u8; 9] = [0x09, 0x21, 0x11, 0x01, 0x00, 0x01, 0x22, 65, 0x00];
     let hid_report_desc: [u8; 65] = [
         0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x05, 0x07, 
         0x19, 0xE0, 0x29, 0xE7, 0x15, 0x00, 0x25, 0x01,
@@ -258,7 +258,7 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
             {
                 Ok(f) => Some(f),
                 Err(err) => {
-                    println!("Got error: {:?}", err);
+                    println!("Got error 1: {:?}", err);
                     //task::sleep(time::Duration::from_millis(1000)).await;
                     //continue;
                     None
@@ -272,7 +272,7 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
             {
                 Ok(f) => Some(f),
                 Err(err) => {
-                    println!("Got error: {:?}", err);
+                    println!("Got error 2: {:?}", err);
                     //task::sleep(time::Duration::from_millis(1000)).await;
                     //continue;
                     None
@@ -284,7 +284,7 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
         if let Some(f) = send_future_1 {
             match f.await {
                 Err(err) => {
-                    println!("Got error: {:?}", err);
+                    println!("Got error await 1: {:?}", err);
                     //task::sleep(time::Duration::from_millis(1000)).await;
                     //continue;
                 },
@@ -296,7 +296,7 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
         if let Some(f) = send_future_2 {
             match f.await {
                 Err(err) => {
-                    println!("Got error: {:?}", err);
+                    println!("Got error await 2: {:?}", err);
                     //task::sleep(time::Duration::from_millis(1000)).await;
                     //continue;
                 },
@@ -485,9 +485,11 @@ fn window(tx: Sender<SentKeypress>, tx_mouse: Sender<SentMouse>)
                 WindowEvent::Resized(physical_size) => windowed_context.resize(physical_size),
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                 WindowEvent::KeyboardInput { input, .. } => {
-                    let code = real_scancode(input.virtual_keycode.unwrap());
+                    if let Some(k) = input.virtual_keycode {
+                    let code = real_scancode(k);
                     //println!("{:?} {:x}", input, code);
                     tx.send(SentKeypress { scancode: code, pressed: input.state == ElementState::Pressed});
+                    }
                 },
                 WindowEvent::MouseInput { button, state, .. } => {
                     //println!("{:?}", event);

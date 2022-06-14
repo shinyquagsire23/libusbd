@@ -12,8 +12,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <dirent.h>
-
-#include <pthread.h>
+#include <sys/eventfd.h>
 
 #include <linux/usb/functionfs.h>
 
@@ -32,123 +31,6 @@
 
 #define le32_to_cpu(x)  le32toh(x)
 #define le16_to_cpu(x)  le16toh(x)
-
-#if 1
-static const struct {
-	struct usb_functionfs_descs_head_v2 header;
-	__le32 fs_count;
-	__le32 hs_count;
-	__le32 ss_count;
-	struct {
-		struct usb_interface_descriptor intf;
-		struct usb_endpoint_descriptor_no_audio sink;
-		struct usb_endpoint_descriptor_no_audio source;
-	} __attribute__((packed)) fs_descs, hs_descs;
-	struct {
-		struct usb_interface_descriptor intf;
-		struct usb_endpoint_descriptor_no_audio sink;
-		struct usb_ss_ep_comp_descriptor sink_comp;
-		struct usb_endpoint_descriptor_no_audio source;
-		struct usb_ss_ep_comp_descriptor source_comp;
-	} ss_descs;
-} __attribute__((packed)) descriptors = {
-	.header = {
-		.magic = cpu_to_le32(FUNCTIONFS_DESCRIPTORS_MAGIC_V2),
-		.flags = cpu_to_le32(FUNCTIONFS_HAS_FS_DESC |
-				     FUNCTIONFS_HAS_HS_DESC |
-				     FUNCTIONFS_HAS_SS_DESC),
-		.length = cpu_to_le32(sizeof descriptors),
-	},
-	.fs_count = cpu_to_le32(3),
-	.fs_descs = {
-		.intf = {
-			.bLength = sizeof descriptors.fs_descs.intf,
-			.bDescriptorType = USB_DT_INTERFACE,
-			.bNumEndpoints = 2,
-			.bInterfaceClass = USB_CLASS_VENDOR_SPEC,
-			.iInterface = 1,
-		},
-		.sink = {
-			.bLength = sizeof descriptors.fs_descs.sink,
-			.bDescriptorType = USB_DT_ENDPOINT,
-			.bEndpointAddress = 1 | USB_DIR_IN,
-			.bmAttributes = USB_ENDPOINT_XFER_BULK,
-			/* .wMaxPacketSize = autoconfiguration (kernel) */
-		},
-		.source = {
-			.bLength = sizeof descriptors.fs_descs.source,
-			.bDescriptorType = USB_DT_ENDPOINT,
-			.bEndpointAddress = 2 | USB_DIR_OUT,
-			.bmAttributes = USB_ENDPOINT_XFER_BULK,
-			/* .wMaxPacketSize = autoconfiguration (kernel) */
-		},
-	},
-	.hs_count = cpu_to_le32(3),
-	.hs_descs = {
-		.intf = {
-			.bLength = sizeof descriptors.fs_descs.intf,
-			.bDescriptorType = USB_DT_INTERFACE,
-			.bNumEndpoints = 2,
-			.bInterfaceClass = USB_CLASS_VENDOR_SPEC,
-			.iInterface = 1,
-		},
-		.sink = {
-			.bLength = sizeof descriptors.hs_descs.sink,
-			.bDescriptorType = USB_DT_ENDPOINT,
-			.bEndpointAddress = 1 | USB_DIR_IN,
-			.bmAttributes = USB_ENDPOINT_XFER_BULK,
-			.wMaxPacketSize = cpu_to_le16(512),
-		},
-		.source = {
-			.bLength = sizeof descriptors.hs_descs.source,
-			.bDescriptorType = USB_DT_ENDPOINT,
-			.bEndpointAddress = 2 | USB_DIR_OUT,
-			.bmAttributes = USB_ENDPOINT_XFER_BULK,
-			.wMaxPacketSize = cpu_to_le16(512),
-			.bInterval = 1, /* NAK every 1 uframe */
-		},
-	},
-	.ss_count = cpu_to_le32(5),
-	.ss_descs = {
-		.intf = {
-			.bLength = sizeof descriptors.fs_descs.intf,
-			.bDescriptorType = USB_DT_INTERFACE,
-			.bNumEndpoints = 2,
-			.bInterfaceClass = USB_CLASS_VENDOR_SPEC,
-			.iInterface = 1,
-		},
-		.sink = {
-			.bLength = sizeof descriptors.hs_descs.sink,
-			.bDescriptorType = USB_DT_ENDPOINT,
-			.bEndpointAddress = 1 | USB_DIR_IN,
-			.bmAttributes = USB_ENDPOINT_XFER_BULK,
-			.wMaxPacketSize = cpu_to_le16(1024),
-		},
-		.sink_comp = {
-			.bLength = USB_DT_SS_EP_COMP_SIZE,
-			.bDescriptorType = USB_DT_SS_ENDPOINT_COMP,
-			.bMaxBurst = 0,
-			.bmAttributes = 0,
-			.wBytesPerInterval = 0,
-		},
-		.source = {
-			.bLength = sizeof descriptors.hs_descs.source,
-			.bDescriptorType = USB_DT_ENDPOINT,
-			.bEndpointAddress = 2 | USB_DIR_OUT,
-			.bmAttributes = USB_ENDPOINT_XFER_BULK,
-			.wMaxPacketSize = cpu_to_le16(1024),
-			.bInterval = 1, /* NAK every 1 uframe */
-		},
-		.source_comp = {
-			.bLength = USB_DT_SS_EP_COMP_SIZE,
-			.bDescriptorType = USB_DT_SS_ENDPOINT_COMP,
-			.bMaxBurst = 0,
-			.bmAttributes = 0,
-			.wBytesPerInterval = 0,
-		},
-	},
-};
-#endif
 
 #define STR_INTERFACE_ "libusbd if"
 
@@ -196,7 +78,7 @@ static int msleep(long msec)
         res = nanosleep(&ts, &ts);
     } while (res && errno == EINTR);
 
-    pthread_yield();
+    //pthread_yield();
 
     return res;
 }
@@ -219,7 +101,7 @@ static int _usleep(long usec)
         res = nanosleep(&ts, &ts);
     } while (res && errno == EINTR);
 
-    pthread_yield();
+    //pthread_yield();
 
     return res;
 }
@@ -256,88 +138,6 @@ static void write_decimal_to_file(const char* fpath, uint16_t val)
 
 #if 0
 
-kern_return_t IOUSBDeviceInterface_WritePipe(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, const void* data, uint32_t len, uint64_t timeoutMs);
-kern_return_t IOUSBDeviceInterface_GetPipeCurrentMaxPacketSize(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, uint64_t* pOut);
-kern_return_t IOUSBDeviceInterface_AbortPipe(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id);
-kern_return_t IOUSBDeviceInterface_StallPipe(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id);
-
-kern_return_t IOUSBDeviceInterface_Open(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num)
-{
-    uint64_t args[1] = { 0 };
-
-    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
-
-    return IOConnectCallScalarMethod(pIface->port, 0, args, 1, NULL, NULL);
-}
-
-kern_return_t IOUSBDeviceInterface_Close(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num)
-{
-    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
-
-    return IOConnectCallScalarMethod(pIface->port, 1, NULL, 0, NULL, NULL);
-}
-
-kern_return_t IOUSBDeviceInterface_SetClass(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, uint8_t val)
-{
-    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
-
-    uint64_t args[2] = {val, pImplCtx->configId};
-    return IOConnectCallScalarMethod(pIface->port, 3, args, 2, NULL, NULL);
-}
-
-kern_return_t IOUSBDeviceInterface_SetSubClass(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, uint8_t val)
-{
-    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
-
-    uint64_t args[2] = {val, pImplCtx->configId};
-    return IOConnectCallScalarMethod(pIface->port, 4, args, 2, NULL, NULL);
-}
-
-kern_return_t IOUSBDeviceInterface_SetProtocol(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, uint8_t val)
-{
-    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
-
-    uint64_t args[2] = {val, pImplCtx->configId};
-    return IOConnectCallScalarMethod(pIface->port, 5, args, 2, NULL, NULL);
-}
-
-kern_return_t IOUSBDeviceInterface_CreatePipe(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, uint8_t type, uint8_t direction, uint32_t maxPktSize, uint8_t interval, uint64_t unk, uint64_t* pPipeOut)
-{
-    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
-
-    uint32_t outputCount = 1;
-    uint64_t output[1] = {0};
-    uint64_t args[6] = {type, direction, maxPktSize, interval, unk, pImplCtx->configId};
-
-    kern_return_t ret = IOConnectCallScalarMethod(pIface->port, 10, args, 6, output, &outputCount);
-
-    if (pPipeOut)
-        *pPipeOut = output[0];
-
-    return ret;
-}
-
-kern_return_t IOUSBDeviceInterface_AppendStandardClassOrVendorDescriptor(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, const uint8_t* pDesc, uint64_t descSz)
-{
-    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
-
-    uint64_t args[2] = {descType, unk};
-
-    kern_return_t ret = IOConnectCallMethod(pIface->port, 6, args, 2, pDesc, descSz, NULL, NULL, NULL, NULL);
-
-    return ret;
-}
-
-kern_return_t IOUSBDeviceInterface_AppendNonstandardClassOrVendorDescriptor(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, uint8_t descType, uint8_t unk, const uint8_t* pDesc, uint64_t descSz)
-{
-    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
-
-    uint64_t args[2] = {descType, unk};
-
-    kern_return_t ret = IOConnectCallMethod(pIface->port, 7, args, 2, pDesc, descSz, NULL, NULL, NULL, NULL);
-
-    return ret;
-}
 
 kern_return_t IOUSBDeviceInterface_CompleteClassCommandCallback(libusbd_linux_iface_t* pIface, uint8_t iface_num, libusbd_setup_callback_info_t* info, uint64_t* arguments)
 {
@@ -392,286 +192,6 @@ kern_return_t IOUSBDeviceInterface_SetClassCommandCallbacks(libusbd_linux_ctx_t*
     if (ret) { 
         return ret;
     }
-
-    return ret;
-}
-
-kern_return_t IOUSBDeviceInterface_CommitConfiguration(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num)
-{
-    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
-
-    kern_return_t ret = IOConnectCallScalarMethod(pIface->port, 11, NULL, 0, NULL, NULL);
-
-    return ret;
-}
-
-kern_return_t IOUSBDeviceInterface_CreateBuffer(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, uint32_t bufferSz, libusbd_linux_buffer_t* pOut)
-{
-    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
-
-    uint32_t outputCount = 3;
-    uint64_t output[3] = {0};
-    uint64_t args[1] = {bufferSz};
-
-    kern_return_t ret = IOConnectCallScalarMethod(pIface->port, 18, args, 1, output, &outputCount);
-
-    if (pOut) {
-        pOut->data = (void*)output[0];
-        pOut->size = output[1];
-        pOut->token = output[2];
-    }
-
-    return ret;
-}
-
-kern_return_t IOUSBDeviceInterface_ReleaseBuffer(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, libusbd_linux_buffer_t* pBuffer)
-{
-    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
-
-    uint64_t args[1] = {pBuffer->token};
-
-    kern_return_t ret = IOConnectCallScalarMethod(pIface->port, 19, args, 1, NULL, NULL);
-
-    return ret;
-}
-
-void IOUSBDeviceInterface_ReadPipeCallback(void* refcon, IOReturn result, uint64_t* arguments)
-{
-    libusbd_linux_ep_t* pEp = (libusbd_linux_ep_t*)refcon;
-    pEp->last_transferred = (uint64_t)arguments;
-
-    if (pEp->last_transferred || result) {
-        pEp->ep_async_done = 1;
-    }
-
-    pEp->last_error = result;
-
-    //if (pEp->last_transferred)
-    //    printf("libusbd linux: Read %x bytes %x (%x)\n", pEp->last_transferred, result, *(uint32_t*)pEp->buffer.data);
-}
-
-void IOUSBDeviceInterface_WritePipeCallback(void* refcon, IOReturn result, uint64_t* arguments)
-{
-    libusbd_linux_ep_t* pEp = (libusbd_linux_ep_t*)refcon;
-    pEp->last_transferred = (uint64_t)arguments;
-
-    if (pEp->last_transferred || result) {
-        pEp->ep_async_done = 1;
-    }
-
-    pEp->last_error = result;
-
-    //printf("write callback %llx %x\n", pEp->last_transferred, pEp->last_error);
-
-    //if (pEp->last_transferred)
-    //    printf("libusbd linux: Read %x bytes %x (%x)\n", pEp->last_transferred, result, *(uint32_t*)pEp->buffer.data);
-}
-
-kern_return_t IOUSBDeviceInterface_ReadPipe(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, void* data, uint32_t len, uint64_t timeoutMs)
-{
-    if (iface_num >= LIBUSBD_MAX_IFACES) return LIBUSBD_LINUX_FAKERET_BADARGS;
-
-    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
-    libusbd_linux_ep_t* pEp = &pIface->aEndpoints[pipe_id];
-
-    libusbd_linux_buffer_t* pBuffer = &pEp->buffer;
-    uint64_t args[4] = {pipe_id, pBuffer->token, len, timeoutMs};
-    uint32_t outputCount = 1;
-    uint64_t output[1] = {0};
-
-    uint64_t asyncRef[8];
-    asyncRef[kIOAsyncReservedIndex] = pEp->mnotification_port;
-    asyncRef[kIOAsyncCalloutFuncIndex] = (uint64_t)IOUSBDeviceInterface_ReadPipeCallback;
-    asyncRef[kIOAsyncCalloutRefconIndex] = (uint64_t)pEp;
-
-    pEp->ep_async_done = 0;
-    pEp->last_transferred = 0;
-    pEp->last_error = 0;
-    kern_return_t ret = 0;
-
-    if (data && pBuffer->data && len) {
-        if (len > pBuffer->size) return LIBUSBD_LINUX_FAKERET_BADARGS;
-    }
-
-    // The actual read request, size `len`
-    ret = IOConnectCallAsyncScalarMethod(pIface->port, 13, pEp->mnotification_port, asyncRef, kOSAsyncRef64Count, args, 4, output, &outputCount);
-
-    // For some reason you have to call it again, size `maxPktSize - len`
-    args[2] = pEp->maxPktSize - len;
-    if (args[2])
-        IOConnectCallAsyncScalarMethod(pIface->port, 13, pEp->mnotification_port, asyncRef, kOSAsyncRef64Count, args, 4, output, &outputCount);
-    // TODO ret check
-
-    if (ret) {
-        if (ret != LIBUSBD_LINUX_ERR_NOTACTIVATED)
-            printf("libusbd linux: Unexpected error during IOUSBDeviceInterface_ReadPipe: %x (output %llx)\n", ret, output[0]);
-        return ret;
-    }
-
-    msleep(0);
-
-    uint64_t i = 0;
-    for (i = 0; i < timeoutMs*1000; i++) 
-    {
-        if (pEp->ep_async_done) break;
-        _usleep(1);
-    }
-
-    if (i == timeoutMs && !pEp->ep_async_done) {
-        IOUSBDeviceInterface_AbortPipe(pImplCtx, iface_num, pipe_id);
-        return 0;
-    }
-
-    ret = pEp->last_transferred;
-
-    if (data && pBuffer->data && data != pBuffer->data && len) {
-        memcpy(data, pBuffer->data, len);
-    }
-
-    return ret;
-}
-
-kern_return_t IOUSBDeviceInterface_ReadPipeStart(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, uint32_t len, uint64_t timeoutMs)
-{
-    if (iface_num >= LIBUSBD_MAX_IFACES) return LIBUSBD_LINUX_FAKERET_BADARGS;
-
-    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
-    libusbd_linux_ep_t* pEp = &pIface->aEndpoints[pipe_id];
-
-    libusbd_linux_buffer_t* pBuffer = &pEp->buffer;
-    uint64_t args[4] = {pipe_id, pBuffer->token, len, timeoutMs};
-    uint32_t outputCount = 1;
-    uint64_t output[1];
-
-    uint64_t asyncRef[8];
-    asyncRef[kIOAsyncReservedIndex] = pEp->mnotification_port;
-    asyncRef[kIOAsyncCalloutFuncIndex] = (uint64_t)IOUSBDeviceInterface_ReadPipeCallback;
-    asyncRef[kIOAsyncCalloutRefconIndex] = (uint64_t)pEp;
-
-    pEp->ep_async_done = 0;
-    pEp->last_transferred = 0;
-    pEp->last_error = 0;
-
-    kern_return_t ret = IOConnectCallAsyncScalarMethod(pIface->port, 13, pEp->mnotification_port, asyncRef, kOSAsyncRef64Count, args, 4, output, &outputCount);
-
-    return ret;
-}
-
-kern_return_t IOUSBDeviceInterface_WritePipe(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, const void* data, uint32_t len, uint64_t timeoutMs)
-{
-    if (iface_num >= LIBUSBD_MAX_IFACES) return LIBUSBD_LINUX_FAKERET_BADARGS;
-
-    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
-    libusbd_linux_ep_t* pEp = &pIface->aEndpoints[pipe_id];
-
-    libusbd_linux_buffer_t* pBuffer = &pEp->buffer;
-    uint64_t args[4] = {pipe_id, pBuffer->token, len, timeoutMs};
-    uint32_t outputCount = 1;
-    uint64_t output[1];
-
-    if (data && pBuffer->data && data != pBuffer->data && len) {
-        if (len > pBuffer->size) return LIBUSBD_LINUX_FAKERET_BADARGS;
-
-        memcpy(pBuffer->data, data, len);
-    }
-
-    pEp->ep_async_done = 0;
-    pEp->last_transferred = 0;
-    pEp->last_error = 0;
-
-    kern_return_t ret = IOConnectCallScalarMethod(pIface->port, 14, args, 4, output, &outputCount);
-    if (!ret) {
-        ret = output[0];
-        pEp->last_transferred = ret;
-    }
-
-    return ret;
-}
-
-kern_return_t IOUSBDeviceInterface_WritePipeStart(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, const void* data, uint32_t len, uint64_t timeoutMs)
-{
-    if (iface_num >= LIBUSBD_MAX_IFACES) return LIBUSBD_LINUX_FAKERET_BADARGS;
-
-    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
-    libusbd_linux_ep_t* pEp = &pIface->aEndpoints[pipe_id];
-
-    libusbd_linux_buffer_t* pBuffer = &pEp->buffer;
-    uint64_t args[4] = {pipe_id, pBuffer->token, len, timeoutMs};
-    uint32_t outputCount = 1;
-    uint64_t output[1];
-
-    if (data && pBuffer->data && data != pBuffer->data && len) {
-        if (len > pBuffer->size) return LIBUSBD_LINUX_FAKERET_BADARGS;
-
-        memcpy(pBuffer->data, data, len);
-    }
-
-    uint64_t asyncRef[8];
-    asyncRef[kIOAsyncReservedIndex] = pEp->mnotification_port;
-    asyncRef[kIOAsyncCalloutFuncIndex] = (uint64_t)IOUSBDeviceInterface_WritePipeCallback;
-    asyncRef[kIOAsyncCalloutRefconIndex] = (uint64_t)pEp;
-
-    pEp->ep_async_done = 0;
-    pEp->last_transferred = 0;
-    pEp->last_error = 0;
-    kern_return_t ret = IOConnectCallAsyncScalarMethod(pIface->port, 14, pEp->mnotification_port, asyncRef, kOSAsyncRef64Count, args, 4, output, &outputCount);
-
-    return ret;
-}
-
-kern_return_t IOUSBDeviceInterface_StallPipe(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id)
-{
-    if (iface_num >= LIBUSBD_MAX_IFACES) return LIBUSBD_LINUX_FAKERET_BADARGS;
-
-    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
-
-    uint64_t args[1] = {pipe_id};
-
-    kern_return_t ret = IOConnectCallScalarMethod(pIface->port, 15, args, 1, NULL, NULL);
-
-    return ret;
-}
-
-kern_return_t IOUSBDeviceInterface_AbortPipe(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id)
-{
-    if (iface_num >= LIBUSBD_MAX_IFACES) return LIBUSBD_LINUX_FAKERET_BADARGS;
-
-    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
-
-    uint64_t args[1] = {pipe_id};
-
-    kern_return_t ret = IOConnectCallScalarMethod(pIface->port, 16, args, 1, NULL, NULL);
-
-    return ret;
-}
-
-kern_return_t IOUSBDeviceInterface_GetPipeCurrentMaxPacketSize(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, uint64_t* pOut)
-{
-    if (iface_num >= LIBUSBD_MAX_IFACES) return LIBUSBD_LINUX_FAKERET_BADARGS;
-
-    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
-
-    uint64_t args[1] = {pipe_id};
-    uint32_t outputCount = 1;
-    uint64_t output[1];
-
-    kern_return_t ret = IOConnectCallScalarMethod(pIface->port, 17, args, 1, output, &outputCount);
-
-    if (pOut)
-        *pOut = output[0];
-
-    return ret;
-}
-
-kern_return_t IOUSBDeviceInterface_SetPipeProperty(libusbd_linux_ctx_t* pImplCtx, uint8_t iface_num, uint64_t pipe_id, uint32_t val)
-{
-    if (iface_num >= LIBUSBD_MAX_IFACES) return LIBUSBD_LINUX_FAKERET_BADARGS;
-
-    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
-
-    uint64_t args[2] = {pipe_id, val};
-
-    kern_return_t ret = IOConnectCallScalarMethod(pIface->port, 27, args, 2, NULL, NULL);
 
     return ret;
 }
@@ -743,7 +263,7 @@ static void* libusbd_linux_ep0_thread(libusbd_ctx_t* pCtx)
     {
         int ret = read(pImplCtx->ep0_fd, pImplCtx->setup_buffer.data, pImplCtx->setup_buffer.size);
         if (ret < 0) {
-            pthread_yield();
+            //pthread_yield();
             continue;
         }
 
@@ -797,10 +317,63 @@ static void* libusbd_linux_ep0_thread(libusbd_ctx_t* pCtx)
                     break;
             }
         }
-        pthread_yield();
+        //pthread_yield();
     }
 
     printf("libusbd linux: Stopped ep0\n");
+
+    //Not reached, CFRunLoopRun doesn't return in this case.
+    return NULL;
+}
+
+static void* libusbd_linux_async_thread(libusbd_ctx_t* pCtx)
+{
+    printf("libusbd linux: Start async\n");
+
+    libusbd_linux_ctx_t* pImplCtx = pCtx->pLinuxCtx;
+    pImplCtx->async_running = 1;
+
+    // Start loop
+    while (pImplCtx->async_running)
+    {
+        struct io_event e[1];
+
+        pthread_mutex_lock(&pImplCtx->io_mutex);
+	    int ret = io_getevents(pImplCtx->io_ctx, 0, 1, e, NULL);
+        pthread_mutex_unlock(&pImplCtx->io_mutex);
+
+	    /* if we got event */
+	    for (int idx = 0; idx < ret; ++idx) {
+	    
+	        // Close all the endpoints
+            uint8_t epNum = 1;
+            for (int i = 0; i < pCtx->bNumInterfaces; i++)
+            {
+                libusbd_linux_iface_t* pIfaceIter = &pImplCtx->aInterfaces[i];
+                libusbd_iface_t* pIfaceIterSuper = &pCtx->aInterfaces[i];
+
+                for (int j = 0; j < pIfaceIter->bNumEndpoints; j++)
+                {
+                    if (e[idx].obj->aio_fildes == pIfaceIter->aEndpoints[j].fd) {
+                        if ((int)e[idx].res >= 0) {
+			                pIfaceIter->aEndpoints[j].last_transferred = e[idx].res;
+			                //printf("no error? %d\n", e[idx].res);
+			            }
+			            else {
+			                pIfaceIter->aEndpoints[j].last_transferred = 0;
+			                //printf("error? %d\n", e[idx].res);
+			            }
+                        pIfaceIter->aEndpoints[j].ep_async_done = 1;
+                        pIfaceIter->aEndpoints[j].request_in_flight = 0;
+		            }
+                    
+                }
+            }
+	    }
+        //pthread_yield();
+    }
+
+    printf("libusbd linux: Stopped async\n");
 
     //Not reached, CFRunLoopRun doesn't return in this case.
     return NULL;
@@ -841,6 +414,44 @@ void libusbd_linux_stop_ep0_thread(libusbd_ctx_t* pCtx)
 {
     if (pCtx->pLinuxCtx->ep0_running != 0) {
         pCtx->pLinuxCtx->ep0_running = 0;
+    }
+}
+
+int libusbd_linux_launch_async_thread(libusbd_ctx_t* pCtx)
+{
+
+    if (pCtx->pLinuxCtx->async_running != 0)
+        return 0;
+
+    // Create the thread using POSIX routines.
+    pthread_attr_t  attr;
+    pthread_t       posixThreadID;
+    int             returnVal;
+
+    returnVal = pthread_attr_init(&attr);
+    if (returnVal != 0)
+        return returnVal;
+
+    returnVal = pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    if (returnVal != 0)
+        return returnVal;
+
+    int     threadError = pthread_create(&posixThreadID, &attr, &libusbd_linux_async_thread, pCtx);
+
+    returnVal = pthread_attr_destroy(&attr);
+    if (returnVal != 0)
+        return returnVal;
+
+    if (threadError != 0)
+        return threadError;
+
+    return 0;
+}
+
+void libusbd_linux_stop_async_thread(libusbd_ctx_t* pCtx)
+{
+    if (pCtx->pLinuxCtx->async_running != 0) {
+        pCtx->pLinuxCtx->async_running = 0;
     }
 }
 
@@ -901,8 +512,24 @@ int libusbd_impl_init(libusbd_ctx_t* pCtx)
 
     pImplCtx->setup_buffer.data = malloc(0x1000);
     pImplCtx->setup_buffer.size = 0x1000;
+    
+    pthread_mutex_init(&pImplCtx->io_mutex, NULL);
+    
+    memset(&pImplCtx->io_ctx, 0, sizeof(pImplCtx->io_ctx));
+	/* setup aio context to handle up to 2 requests */
+	if (io_setup(2, &pImplCtx->io_ctx) < 0) {
+		perror("unable to setup aio");
+		return 1;
+	}
+    
+    pImplCtx->evfd = eventfd(0, 0);
+	if (pImplCtx->evfd < 0) {
+		printf("unable to open eventfd\n");
+		return LIBUSBD_NONDESCRIPT_ERROR;
+	}
 
     libusbd_linux_launch_ep0_thread(pCtx);
+    libusbd_linux_launch_async_thread(pCtx);
 #if 0
     // TODO: A lot more error checking
     io_iterator_t       iter    = 0;
@@ -1015,6 +642,7 @@ int libusbd_impl_free(libusbd_ctx_t* pCtx)
 
     libusbd_linux_ctx_t* pImplCtx = pCtx->pLinuxCtx;
 
+    libusbd_linux_stop_async_thread(pCtx);
     libusbd_linux_stop_ep0_thread(pCtx);
 
 #if 0
@@ -1054,6 +682,9 @@ int libusbd_impl_free(libusbd_ctx_t* pCtx)
 
     IONotificationPortDestroy(pImplCtx->notification_port);
 #endif
+
+    io_destroy(pImplCtx->io_ctx);
+    pthread_mutex_destroy(&pImplCtx->io_mutex);
 
     // Close all the endpoints
     uint8_t epNum = 1;
@@ -1319,9 +950,10 @@ int libusbd_impl_iface_finalize(libusbd_ctx_t* pCtx, uint8_t iface_num)
         uint16_t cnt = 0;
         for (int i = 0; i < pCtx->bNumInterfaces; i++)
         {
-            struct usb_interface_descriptor* pDescFFS = &pIface->descFFS;
             libusbd_linux_iface_t* pIfaceIter = &pImplCtx->aInterfaces[i];
             libusbd_iface_t* pIfaceIterSuper = &pCtx->aInterfaces[i];
+            
+            struct usb_interface_descriptor* pDescFFS = &pIfaceIter->descFFS;
 
             pDescFFS->bLength = sizeof(*pDescFFS);
             pDescFFS->bDescriptorType = USB_DT_INTERFACE;
@@ -1373,9 +1005,10 @@ int libusbd_impl_iface_finalize(libusbd_ctx_t* pCtx, uint8_t iface_num)
         cnt = 0;
         for (int i = 0; i < pCtx->bNumInterfaces; i++)
         {
-            struct usb_interface_descriptor* pDescFFS = &pIface->descFFS;
             libusbd_linux_iface_t* pIfaceIter = &pImplCtx->aInterfaces[i];
             libusbd_iface_t* pIfaceIterSuper = &pCtx->aInterfaces[i];
+            
+            struct usb_interface_descriptor* pDescFFS = &pIfaceIter->descFFS;
 
             memcpy(pImplCtx->write_descs_next, pDescFFS, sizeof(*pDescFFS));
             pImplCtx->write_descs_sz += sizeof(*pDescFFS);
@@ -1412,9 +1045,10 @@ int libusbd_impl_iface_finalize(libusbd_ctx_t* pCtx, uint8_t iface_num)
 #if 0
         for (int i = 0; i < pCtx->bNumInterfaces; i++)
         {
-            struct usb_interface_descriptor* pDescFFS = &pIface->descFFS;
             libusbd_linux_iface_t* pIfaceIter = &pImplCtx->aInterfaces[i];
             libusbd_iface_t* pIfaceIterSuper = &pCtx->aInterfaces[i];
+            
+            struct usb_interface_descriptor* pDescFFS = &pIfaceIter->descFFS;
 
             memcpy(pImplCtx->write_descs_next, pDescFFS, sizeof(*pDescFFS));
             pImplCtx->write_descs_sz += sizeof(*pDescFFS);
@@ -1941,14 +1575,49 @@ int libusbd_impl_ep_read_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t 
     libusbd_linux_ep_t* pEp = &pIface->aEndpoints[ep];
     libusbd_linux_buffer_t* pBuffer = &pEp->buffer;
 
+#if 0
     int ret = read(pEp->fd, pBuffer->data, len);
 
     if (ret >= 0) {
         pEp->last_transferred = ret;
         pEp->ep_async_done = 1;
     }
+#endif
+    
+    pthread_mutex_lock(&pImplCtx->io_mutex);
+    
+    if (pEp->request_in_flight) {
+        struct io_event e[1];
+        io_cancel(pImplCtx->io_ctx, &pEp->fd_iocb, e); // check
+        pEp->request_in_flight = 0;
+    }
+    
+    pEp->last_transferred = 0;
+    pEp->ep_async_done = 0;
+    
+    //printf("Start read %x\n", len);
+    struct iocb* p_fd_iocb = &pEp->fd_iocb;
+    
+    io_prep_pread(p_fd_iocb, pEp->fd, pBuffer->data, len, 0);
+	/* enable eventfd notification */
+	pEp->fd_iocb.u.c.flags |= IOCB_FLAG_RESFD;
+	pEp->fd_iocb.u.c.resfd = pImplCtx->evfd;
+	/* submit table of requests */
+	int ret = io_submit(pImplCtx->io_ctx, 1, &p_fd_iocb);
+	if (ret >= 0) { /* if ret > 0 request is queued */
 
-    pthread_yield();
+	} else {
+		perror("unable to submit request");
+		return LIBUSBD_NONDESCRIPT_ERROR;
+    }
+    
+    pEp->request_in_flight = 1;
+    
+    pthread_mutex_unlock(&pImplCtx->io_mutex);
+	
+	//printf("Done read: %d\n", ret);
+
+    //pthread_yield();
 
     /*kern_return_t ret = IOUSBDeviceInterface_ReadPipeStart(pImplCtx, iface_num, ep, len, timeout_ms);
     if (ret == LIBUSBD_LINUX_ERR_NOTACTIVATED)
@@ -1996,24 +1665,47 @@ int libusbd_impl_ep_write_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t
     libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
     libusbd_linux_ep_t* pEp = &pIface->aEndpoints[ep];
     libusbd_linux_buffer_t* pBuffer = &pEp->buffer;
+    
+    pthread_mutex_lock(&pImplCtx->io_mutex);
+    
+    if (pEp->request_in_flight) {
+        struct io_event e[1];
+        io_cancel(pImplCtx->io_ctx, &pEp->fd_iocb, e); // check
+        pEp->request_in_flight = 0;
+    }
 
     if (data && pBuffer->data && data != pBuffer->data && len) {
         if (len > pBuffer->size) return LIBUSBD_LINUX_FAKERET_BADARGS;
 
         memcpy(pBuffer->data, data, len);
     }
-
+    
+    pEp->last_transferred = 0;
+    pEp->ep_async_done = 0;
+    
     //printf("Start write %x\n", len);
+    struct iocb* p_fd_iocb = &pEp->fd_iocb;
+    
+    io_prep_pwrite(p_fd_iocb, pEp->fd, pBuffer->data, len, 0);
+	/* enable eventfd notification */
+	pEp->fd_iocb.u.c.flags |= IOCB_FLAG_RESFD;
+	pEp->fd_iocb.u.c.resfd = pImplCtx->evfd;
+	/* submit table of requests */
+	int ret = io_submit(pImplCtx->io_ctx, 1, &p_fd_iocb);
+	if (ret >= 0) { /* if ret > 0 request is queued */
 
-    int ret = write(pEp->fd, pBuffer->data, len);
-    //printf("Done write: %d\n", ret);
-
-    if (ret >= 0) {
-        pEp->last_transferred = ret;
-        pEp->ep_async_done = 1;
+	} else {
+		perror("unable to submit request");
+		return LIBUSBD_NONDESCRIPT_ERROR;
     }
+    
+    pEp->request_in_flight = 1;
+    
+    pthread_mutex_unlock(&pImplCtx->io_mutex);
+	
+	//printf("Done write: %d\n", ret);
 
-    pthread_yield();
+    //pthread_yield();
 
     /*kern_return_t ret = IOUSBDeviceInterface_WritePipeStart(pImplCtx, iface_num, ep, data, len, timeout_ms);
     if (ret == LIBUSBD_LINUX_ERR_NOTACTIVATED)

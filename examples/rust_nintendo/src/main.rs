@@ -190,16 +190,18 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
         {
             Ok(f) => f,
             Err(err) => {
-                println!("Got error: {:?}", err);
+                println!("Got error initial: {:?}", err);
                 task::sleep(time::Duration::from_millis(16)).await;
                 continue;
             },
         };
+        
+        println!("begin aaaa 2");
 
         // This also reports the number of bytes written, if Ok
         match send_future_1.await {
             Err(err) => {
-                println!("Got error: {:?}", err);
+                println!("Got error await initial: {:?}", err);
                 task::sleep(time::Duration::from_millis(16)).await;
                 continue;
             },
@@ -311,7 +313,7 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
         mouse_send[6] = wheel_dy as u8;
         mouse_send[7] = wheel_dx as u8;
         if wheel_dy != 0 {
-            println!("{}", wheel_dy);
+            //println!("{}", wheel_dy);
         }
 
         if needs_update || mouse_needs_update {
@@ -513,7 +515,7 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
         {
             Ok(f) => Some(f),
             Err(err) => {
-                println!("Got error: {:?}", err);
+                println!("Got error recv_future_1: {:?}", err);
                 //task::sleep(time::Duration::from_millis(1000)).await;
                 //continue;
                 None
