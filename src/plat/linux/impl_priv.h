@@ -70,6 +70,7 @@ typedef struct libusbd_linux_ctx_t
     uint32_t iface_rand32;
 
     int ep0_running;
+    int has_enumerated;
 
     libusbd_linux_buffer_t setup_buffer;
     libusbd_linux_iface_t aInterfaces[16];

@@ -196,7 +196,7 @@ static int msleep(long msec)
         res = nanosleep(&ts, &ts);
     } while (res && errno == EINTR);
 
-    //pthread_yield_np();
+    pthread_yield();
 
     return res;
 }
@@ -219,7 +219,7 @@ static int _usleep(long usec)
         res = nanosleep(&ts, &ts);
     } while (res && errno == EINTR);
 
-    //pthread_yield_np();
+    pthread_yield();
 
     return res;
 }
@@ -677,6 +677,60 @@ kern_return_t IOUSBDeviceInterface_SetPipeProperty(libusbd_linux_ctx_t* pImplCtx
 }
 #endif
 
+static void libusbd_linux_handle_setup(libusbd_ctx_t* pCtx, struct usb_ctrlrequest* pSetup)
+{
+    libusbd_linux_ctx_t* pImplCtx = pCtx->pLinuxCtx;
+
+    printf("Setup: %x %x\n", pSetup->bRequestType, pSetup->bRequest);
+
+    if (pSetup->bRequestType == LIBUSBD_DEV2HOST_INTERFACE)
+    {
+        if (pSetup->bRequest == LIBUSBD_GET_DESCRIPTOR)
+        {
+            if (pSetup->wIndex >= LIBUSBD_MAX_IFACES) return;
+
+            libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[pSetup->wIndex];
+            if (!pCtx->aInterfaces[pSetup->wIndex].finalized) {
+                return;
+            }
+
+            libusbd_linux_descdata_t* pIter = pIface->pNonStandardDescs;
+            while (pIter)
+            {
+                if (pIter->idx == (pSetup->wValue >> 8)) {
+                    uint16_t len_out = pSetup->wLength;
+                    if (len_out > pIface->setup_buffer.size) {
+                        len_out = pIface->setup_buffer.size;
+                    }
+                    memset(pIface->setup_buffer.data, 0, len_out);
+                    memcpy(pIface->setup_buffer.data, pIter->data, pIter->size);
+
+                    int ret = write(pImplCtx->ep0_fd, pIface->setup_buffer.data, len_out);
+                    if (ret < 0) {
+                        return;
+                    }
+                    return;
+                }
+                
+                pIter = pIter->pNext;
+            }
+        }
+    }
+    else if (pSetup->bRequestType == LIBUSBD_HOST2DEV_INTERFACE_CLASS)
+    {
+        if (pSetup->bRequest == 0x9) {
+            write(pImplCtx->ep0_fd, pImplCtx->setup_buffer.data, 0);
+        }
+    }
+    else
+    {
+        if (pSetup->bRequestType & LIBUSBD_DEV2HOST_DIR)
+            write(pImplCtx->ep0_fd, pImplCtx->setup_buffer.data, 0);
+        else
+            read(pImplCtx->ep0_fd, pImplCtx->setup_buffer.data, 0);
+    }
+}
+
 static void* libusbd_linux_ep0_thread(libusbd_ctx_t* pCtx)
 {
     printf("libusbd linux: Start ep0\n");
@@ -689,7 +743,7 @@ static void* libusbd_linux_ep0_thread(libusbd_ctx_t* pCtx)
     {
         int ret = read(pImplCtx->ep0_fd, pImplCtx->setup_buffer.data, pImplCtx->setup_buffer.size);
         if (ret < 0) {
-            msleep(1);
+            pthread_yield();
             continue;
         }
 
@@ -706,22 +760,44 @@ static void* libusbd_linux_ep0_thread(libusbd_ctx_t* pCtx)
         const struct usb_functionfs_event *event = pImplCtx->setup_buffer.data;
         for (size_t n = ret / sizeof *event; n; --n, ++event) {
             switch (event->type) {
-            case FUNCTIONFS_BIND:
-            case FUNCTIONFS_UNBIND:
-            case FUNCTIONFS_ENABLE:
-            case FUNCTIONFS_DISABLE:
-            case FUNCTIONFS_SETUP:
-            case FUNCTIONFS_SUSPEND:
-            case FUNCTIONFS_RESUME:
-                printf("Event %s\n", names[event->type]);
-                //if (event->type == FUNCTIONFS_SETUP)
-                //    handle_setup(&event->u.setup);
-                break;
+                case FUNCTIONFS_BIND:
+                case FUNCTIONFS_UNBIND:
+                case FUNCTIONFS_SUSPEND:
+                case FUNCTIONFS_RESUME:
+                case FUNCTIONFS_ENABLE:
+                case FUNCTIONFS_DISABLE:
+                    printf("Event %s\n", names[event->type]);
+                    break;
+                case FUNCTIONFS_SETUP:
+                    break;
+                default:
+                    printf("Event %03u (unknown)\n", event->type);
+                    break;
+            }
 
-            default:
-                printf("Event %03u (unknown)\n", event->type);
+            switch (event->type) {
+                case FUNCTIONFS_BIND:
+                case FUNCTIONFS_UNBIND:
+                case FUNCTIONFS_SUSPEND:
+                case FUNCTIONFS_RESUME:
+                    break;
+                case FUNCTIONFS_ENABLE:
+                    msleep(10);
+                    pImplCtx->has_enumerated = 1;
+                    break;
+                case FUNCTIONFS_DISABLE:
+                    pImplCtx->has_enumerated = 0;
+                    msleep(10);
+                    break;
+                case FUNCTIONFS_SETUP:
+                    libusbd_linux_handle_setup(pCtx, &event->u.setup);
+                    break;
+
+                default:
+                    break;
             }
         }
+        pthread_yield();
     }
 
     printf("libusbd linux: Stopped ep0\n");
@@ -1473,6 +1549,7 @@ int libusbd_impl_iface_nonstandard_desc(libusbd_ctx_t* pCtx, uint8_t iface_num, 
     pNewDesc->data = malloc(descSz);
     memcpy(pNewDesc->data, pDesc, descSz);
     pNewDesc->size = descSz;
+    pNewDesc->idx = descType;
 
     pIface->pNonStandardDescs = pNewDesc;
 
@@ -1508,7 +1585,7 @@ int libusbd_impl_iface_add_endpoint(libusbd_ctx_t* pCtx, uint8_t iface_num, uint
     pEpFFS->bInterval = interval;
     pEpFFS->bEndpointAddress = (direction == USB_EP_DIR_IN ? USB_DIR_IN : USB_DIR_OUT); // number gets added later
 
-    pIface->bNumEndpoints++;
+    *pEpOut = pIface->bNumEndpoints++;
 
     //kern_return_t ret = IOUSBDeviceInterface_CreatePipe(pImplCtx, iface_num, type, direction, maxPktSize, interval, unk, pEpOut);
 
@@ -1690,11 +1767,15 @@ int libusbd_impl_ep_read(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, vo
 
     libusbd_linux_ctx_t* pImplCtx = pCtx->pLinuxCtx;
 
+    if (!pImplCtx->has_enumerated) {
+        return LIBUSBD_NOT_ENUMERATED;
+    }
+
     libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
     libusbd_linux_ep_t* pEp = &pIface->aEndpoints[ep];
     libusbd_linux_buffer_t* pBuffer = &pEp->buffer;
 
-    int ret = read(pEp->fd, pBuffer->data, pBuffer->size);
+    int ret = read(pEp->fd, pBuffer->data, len);
 
     if (data && pBuffer->data && data != pBuffer->data && len) {
         memcpy(data, pBuffer->data, len);
@@ -1740,6 +1821,10 @@ int libusbd_impl_ep_write(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, c
 
     libusbd_linux_ctx_t* pImplCtx = pCtx->pLinuxCtx;
 
+    if (!pImplCtx->has_enumerated) {
+        return LIBUSBD_NOT_ENUMERATED;
+    }
+
     libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
     libusbd_linux_ep_t* pEp = &pIface->aEndpoints[ep];
     libusbd_linux_buffer_t* pBuffer = &pEp->buffer;
@@ -1750,7 +1835,7 @@ int libusbd_impl_ep_write(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t ep, c
         memcpy(pBuffer->data, data, len);
     }
 
-    int ret = write(pEp->fd, pBuffer->data, pBuffer->size);
+    int ret = write(pEp->fd, pBuffer->data, len);
 
     /*kern_return_t ret = IOUSBDeviceInterface_WritePipe(pImplCtx, iface_num, ep, data, len, timeoutMs);
     if (ret == LIBUSBD_LINUX_ERR_NOTACTIVATED)
@@ -1852,6 +1937,19 @@ int libusbd_impl_ep_read_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t 
 
     libusbd_linux_ctx_t* pImplCtx = pCtx->pLinuxCtx;
 
+    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
+    libusbd_linux_ep_t* pEp = &pIface->aEndpoints[ep];
+    libusbd_linux_buffer_t* pBuffer = &pEp->buffer;
+
+    int ret = read(pEp->fd, pBuffer->data, len);
+
+    if (ret >= 0) {
+        pEp->last_transferred = ret;
+        pEp->ep_async_done = 1;
+    }
+
+    pthread_yield();
+
     /*kern_return_t ret = IOUSBDeviceInterface_ReadPipeStart(pImplCtx, iface_num, ep, len, timeout_ms);
     if (ret == LIBUSBD_LINUX_ERR_NOTACTIVATED)
     {
@@ -1890,6 +1988,32 @@ int libusbd_impl_ep_write_start(libusbd_ctx_t* pCtx, uint8_t iface_num, uint64_t
     }
 
     libusbd_linux_ctx_t* pImplCtx = pCtx->pLinuxCtx;
+
+    if (!pImplCtx->has_enumerated) {
+        return LIBUSBD_NOT_ENUMERATED;
+    }
+
+    libusbd_linux_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
+    libusbd_linux_ep_t* pEp = &pIface->aEndpoints[ep];
+    libusbd_linux_buffer_t* pBuffer = &pEp->buffer;
+
+    if (data && pBuffer->data && data != pBuffer->data && len) {
+        if (len > pBuffer->size) return LIBUSBD_LINUX_FAKERET_BADARGS;
+
+        memcpy(pBuffer->data, data, len);
+    }
+
+    //printf("Start write %x\n", len);
+
+    int ret = write(pEp->fd, pBuffer->data, len);
+    //printf("Done write: %d\n", ret);
+
+    if (ret >= 0) {
+        pEp->last_transferred = ret;
+        pEp->ep_async_done = 1;
+    }
+
+    pthread_yield();
 
     /*kern_return_t ret = IOUSBDeviceInterface_WritePipeStart(pImplCtx, iface_num, ep, data, len, timeout_ms);
     if (ret == LIBUSBD_LINUX_ERR_NOTACTIVATED)

@@ -42,6 +42,40 @@ enum libusbd_error
 #define USB_EP_DIR_OUT (0)
 #define USB_EP_DIR_IN (1)
 
+//
+// bmRequestType
+//
+#define LIBUSBD_HOST2DEV_DEVICE     (0x00)
+#define LIBUSBD_HOST2DEV_INTERFACE  (0x01)
+#define LIBUSBD_HOST2DEV_ENDPOINT   (0x02)
+#define LIBUSBD_DEV2HOST_DEVICE     (0x80)
+#define LIBUSBD_DEV2HOST_INTERFACE  (0x81)
+#define LIBUSBD_DEV2HOST_ENDPOINT   (0x82)
+
+// Class-specific
+#define LIBUSBD_DEV2HOST_INTERFACE_CLASS  (0xA1)
+#define LIBUSBD_HOST2DEV_INTERFACE_CLASS  (0x21)
+
+#define LIBUSBD_HOST2DEV_DIR     (0x00)
+#define LIBUSBD_DEV2HOST_DIR     (0x80)
+
+// end bmRequestType
+
+//
+// bRequest
+//
+#define LIBUSBD_GET_STATUS        (0)
+#define LIBUSBD_CLEAR_FEATURE     (1)
+#define LIBUSBD_SET_FEATURE       (3)
+#define LIBUSBD_SET_ADDRESS       (5)
+#define LIBUSBD_GET_DESCRIPTOR    (6)
+#define LIBUSBD_SET_DESCRIPTOR    (7)
+#define LIBUSBD_GET_CONFIGURATION (8)
+#define LIBUSBD_SET_CONFIGURATION (9)
+#define LIBUSBD_GET_INTERFACE     (10)
+
+// end bRequest
+
 // Plat types
 typedef struct libusbd_macos_ctx_t libusbd_macos_ctx_t;
 
