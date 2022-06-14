@@ -162,7 +162,6 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
 
     let mut should_stream_input = false;
     let mut keyboard_send: [u8; 8] = [0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0];
-    let mut mouse_send: [u8; 0x8] = [0x1, 0x0,  0x0, 0x0,  0x0, 0x0,   0x0, 0x0];
     let mut mouse_btns: u8 = 0;
 
     let mut controller_send: [u8; 64] = [0x0; 64];
@@ -218,10 +217,6 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
     let mut controller_needs_update = false;
     let mut pkt_increment = 0;
     loop {
-        
-        let mut needs_update = false;
-        let mut mouse_needs_update = false;
-
         for _i in 0..6 {
             let event = match rx.try_recv() {
                 Ok(event) => event,
@@ -242,7 +237,6 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
                     for j in 0..6 {
                         if keyboard_send[2+j] == 0 {
                             keyboard_send[2+j] = trunc_scancode;
-                            needs_update = true;
                             break;
                         }
                     }
@@ -252,7 +246,6 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
                 for j in 0..6 {
                     if keyboard_send[2+j] == trunc_scancode {
                         keyboard_send[2+j] = 0;
-                        needs_update = true;
                     }
                 }
             }
@@ -295,8 +288,6 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
             wheel_dx = wheel_dx.max(-127).min(127);
             wheel_dy = wheel_dy.max(-127).min(127);
 
-            mouse_needs_update = true;
-
             //println!("{} {}", event.scancode, event.pressed);
         }
 
@@ -304,22 +295,6 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
             dx = 0;
             dy = 0;
         }
-
-        mouse_send[1] = mouse_btns;
-        mouse_send[2] = (dx as u16 & 0xFF) as u8;
-        mouse_send[3] = ((dx as u16 & 0xFF00) >> 8) as u8;
-        mouse_send[4] = (dy as u16 & 0xFF) as u8;
-        mouse_send[5] = ((dy as u16 & 0xFF00) >> 8) as u8;
-        mouse_send[6] = wheel_dy as u8;
-        mouse_send[7] = wheel_dx as u8;
-        if wheel_dy != 0 {
-            //println!("{}", wheel_dy);
-        }
-
-        if needs_update || mouse_needs_update {
-            //println!("{:?} {:?}", keyboard_send, mouse_send);
-        }
-
 
         // map keyboard to buttons
         let mut controller_buttons: u32 = 0x008000; // charging grip?
@@ -436,8 +411,8 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
             }
         }
 
-        let dx_upscale = ((dx as i32) << 3).min(0x600).max(-0x600);
-        let dy_upscale = ((dy as i32) << 3).min(0x600).max(-0x600);
+        //let dx_upscale = ((dx as i32) << 3).min(0x600).max(-0x600);
+        //let dy_upscale = ((dy as i32) << 3).min(0x600).max(-0x600);
 
         //stick_2_x = (((stick_2_x as i32).saturating_add(dx_upscale)) & 0xFFF) as u16;
         //stick_2_y = (((stick_2_y as i32).saturating_add(-dy_upscale)) & 0xFFF) as u16;
@@ -1055,8 +1030,8 @@ fn window(tx: Sender<SentKeypress>, tx_mouse: Sender<SentMouse>)
 
                     match delta {
                         MouseScrollDelta::LineDelta(a,b) => {
-                            let mut f_dx = a.max(-1.0).min(1.0);
-                            let mut f_dy = b.max(-1.0).min(1.0);
+                            let f_dx = a.max(-1.0).min(1.0);
+                            let f_dy = b.max(-1.0).min(1.0);
                             dx = (f_dx * 127.0) as i8;
                             dy = (f_dy * 127.0) as i8;
                         },
