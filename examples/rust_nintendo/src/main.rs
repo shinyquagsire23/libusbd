@@ -139,21 +139,22 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
     // 8 Famicom controller right
     // 9 NES controller
     // 0xA NES controller
-    // 0xB SNES controller (EUR)
+    // 0xB SNES controller
     // 0xC n64
     // 0xD generic usb
     // 0xE generic usb
     // 0xF rejected?
     // 0x10-13 rejected?
     let device_type: u8 = 0x3;
-    let body_color: [u8; 3] = [0xac, 0xac, 0xac];
+    let device_subtype: u8 = 0x1; // For SNES: 00 US SNES (purple+logo), 01 JP SFC (colors+logo), 02 EU SNES (colors+logo), 03 generic round controller
+    let body_color: [u8; 3] = [0xAC, 0xAC, 0xAC];
     let button_color: [u8; 3] = [0x46, 0x46, 0x46];
     let leftgrip_color: [u8; 3] = [0xff, 0xff, 0xff];
     let rightgrip_color: [u8; 3] = [0xff, 0xff, 0xff];
     let mut gyro_data: [u8; 36] = [0; 36];//[0x4e, 0xfd, 0x9f, 0xff, 0xf0, 0x0f, 0xe4, 0xff, 0x0d, 0x00, 0x04, 0x00, 0x4e, 0xfd, 0xa2, 0xff, 0xf2, 0x0f, 0xe1, 0xff, 0xf0, 0xff, 0xf4, 0xff, 0x4c, 0xfd, 0xa4, 0xff, 0xf1, 0x0f, 0xe0, 0xff, 0xb5, 0xff, 0xd1, 0xff];
 
     let mut accel_x: i16 = -688;
-    let mut accel_y: i16 = -100;
+    let accel_y: i16 = -100;
     let mut accel_z: i16 = 4038;
 
     let mut gyro_x: i16 = 0;
@@ -710,7 +711,7 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
                         subcmd_reply[9] = 0x7d; // mac
 
                         subcmd_reply[10] = 0x00;
-                        subcmd_reply[11] = 0x03; // 01, spi colors get used. 03 unk, N64?
+                        subcmd_reply[11] = 0x03; // 01, spi colors get used. 02 unk SNES US, 03 unk, N64?
                     },
                     0x03 => {
                         println!("Update mode is now: {:02x}", arg0);
@@ -760,7 +761,7 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
                             }
                         }
                         else if addr == 0x6050 && len == 0xD {
-                            let dat_6050: [u8; 0xD] = [body_color[0], body_color[1], body_color[2], button_color[0], button_color[1], button_color[2], leftgrip_color[0], leftgrip_color[1], leftgrip_color[2], rightgrip_color[0], rightgrip_color[1], rightgrip_color[2], 0x01];
+                            let dat_6050: [u8; 0xD] = [body_color[0], body_color[1], body_color[2], button_color[0], button_color[1], button_color[2], leftgrip_color[0], leftgrip_color[1], leftgrip_color[2], rightgrip_color[0], rightgrip_color[1], rightgrip_color[2], device_subtype];
                             for i in 0..0xD {
                                 subcmd_reply[5+i] = dat_6050[i];
                             }
