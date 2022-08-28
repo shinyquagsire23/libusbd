@@ -21,6 +21,7 @@ bindings_rust/target/*
 examples/rust_async/target/*
 examples/rust_kvm/target/*
 examples/rust_nintendo/target/*
+examples/rust_splatpost/target/*
 boot_args.txt
 mouse_hid.txt
 *.img
