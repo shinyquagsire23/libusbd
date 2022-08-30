@@ -1293,6 +1293,30 @@ int libusbd_impl_iface_alloc(libusbd_ctx_t* pCtx)
     return LIBUSBD_SUCCESS;
 }
 
+int libusbd_impl_iface_set_description(libusbd_ctx_t* pCtx, uint8_t iface_num, const char *desc)
+{
+    if (!pCtx || !pCtx->pLinuxCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    libusbd_linux_ctx_t* pImplCtx = pCtx->pLinuxCtx;
+    if (pCtx->aInterfaces[iface_num].finalized) {
+        return LIBUSBD_ALREADY_FINALIZED;
+    }
+
+    /*kern_return_t ret = IOUSBDeviceInterface_SetDescription(pImplCtx, iface_num, desc);
+
+    if (ret) {
+        return LIBUSBD_NONDESCRIPT_ERROR;
+    }*/
+
+    return LIBUSBD_SUCCESS;
+}
+
 int libusbd_impl_iface_set_class(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t val)
 {
     if (!pCtx || !pCtx->pLinuxCtx) {

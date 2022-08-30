@@ -148,6 +148,13 @@ kern_return_t IOUSBDeviceInterface_Close(libusbd_macos_ctx_t* pImplCtx, uint8_t 
     return IOConnectCallScalarMethod(pIface->port, 1, NULL, 0, NULL, NULL);
 }
 
+kern_return_t IOUSBDeviceInterface_SetDescription(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, const char * desc)
+{
+    libusbd_macos_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
+
+    return IOConnectCallMethod(pIface->port, 2, NULL, 0, desc, strlen(desc)+1, NULL, NULL, NULL, NULL);
+}
+
 kern_return_t IOUSBDeviceInterface_SetClass(libusbd_macos_ctx_t* pImplCtx, uint8_t iface_num, uint8_t val)
 {
     libusbd_macos_iface_t* pIface = &pImplCtx->aInterfaces[iface_num];
@@ -1061,6 +1068,30 @@ int libusbd_impl_iface_alloc(libusbd_ctx_t* pCtx)
     CFStringRef name = CFStringCreateWithCString(NULL, pIface->pName, 0);
 
     alt_IOUSBDeviceDescriptionAppendInterfaceToConfiguration(pImplCtx->desc, pImplCtx->configId, name);
+
+    return LIBUSBD_SUCCESS;
+}
+
+int libusbd_impl_iface_set_description(libusbd_ctx_t* pCtx, uint8_t iface_num, const char *desc)
+{
+    if (!pCtx || !pCtx->pMacosCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    libusbd_macos_ctx_t* pImplCtx = pCtx->pMacosCtx;
+    if (pCtx->aInterfaces[iface_num].finalized) {
+        return LIBUSBD_ALREADY_FINALIZED;
+    }
+
+    kern_return_t ret = IOUSBDeviceInterface_SetDescription(pImplCtx, iface_num, desc);
+
+    if (ret) {
+        return LIBUSBD_NONDESCRIPT_ERROR;
+    }
 
     return LIBUSBD_SUCCESS;
 }
