@@ -296,6 +296,21 @@ int libusbd_iface_add_endpoint(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t t
     return libusbd_impl_iface_add_endpoint(pCtx, iface_num, type, direction, maxPktSize, interval, unk, pEpOut);
 }
 
+int libusbd_iface_set_description(libusbd_ctx_t* pCtx, uint8_t iface_num, const char * desc)
+{
+    if (!pCtx) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    if (iface_num >= LIBUSBD_MAX_IFACES) {
+        return LIBUSBD_INVALID_ARGUMENT;
+    }
+
+    libusbd_impl_iface_set_description(pCtx, iface_num, desc);
+
+    return LIBUSBD_SUCCESS;
+}
+
 int libusbd_iface_set_class(libusbd_ctx_t* pCtx, uint8_t iface_num, uint8_t val)
 {
     if (!pCtx) {
