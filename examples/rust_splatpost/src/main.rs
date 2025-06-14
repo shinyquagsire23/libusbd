@@ -428,7 +428,7 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
                 0x1A => { // kb w -> lstick up
                     stick_1_y = 0x800 + 0x600;
                 }, 
-                0x04 => { // kb a -> lstick left
+                0x04 => { // kb a -> lstzick left
                     stick_1_x = 0x800 - 0x600;
                 },
                 0x16 => { // kb s -> lstick down
@@ -485,19 +485,19 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
         }
 
         if dx < 0 {
-            stick_1_x = 0x800 - 0x600;
+            //stick_1_x = 0x800 - 0x600;
         }
         else if dx > 0 {
-            stick_1_x = 0x800 + 0x600;
+            //stick_1_x = 0x800 + 0x600;
         }
 
         if wheel_dy < 0 {
-            stick_1_x = 0x800 - 0x600;
-            stick_2_x = 0x800 + 0x600;
+            //stick_1_x = 0x800 - 0x600;
+            //stick_2_x = 0x800 + 0x600;
         }
         else if wheel_dy > 0 {
-            stick_1_x = 0x800 + 0x600;
-            stick_2_x = 0x800 - 0x600;
+            //stick_1_x = 0x800 + 0x600;
+            //stick_2_x = 0x800 - 0x600;
         }
 
         //println!("{:?} {:02x}", dx, stick_1_x);
@@ -577,6 +577,24 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
                 0x52 => 0x000002, // up
                 0x51 => 0x000001, // down
         */
+
+        // ZR+up+depress up
+        // start+depress start+depress ZR
+        // left+depress left
+        // a+depress a
+        // down+depress down
+        // a+depress a
+        // right+depress right
+        // a+depress a+a+depress a
+        // fast start+depress start+start+depress start
+        // left+depress left
+        // a+depress a
+        // down+depress down
+        // a+depress a
+        // start+depress start
+        // brief lstick down
+        // spam a
+
         if is_printing {
             stick_1_x = 0x800;
             stick_1_y = 0x800;
@@ -584,106 +602,156 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
             stick_2_y = 0x800;
             controller_buttons = 0x8000;
             let mut value = 0;
+            let frame_mult = 1;
 
-            if centered_frames <= 500 {
-                stick_1_x = 0x800 - 0x600; // lstick left
-                stick_1_y = 0x800 + 0x600; // lstick up
-                //controller_buttons |= 0x000008; // left
-                //controller_buttons |= 0x000002; // up
-
-                if centered_frames >= 100 && centered_frames <= 200 {
-                    controller_buttons |= 0x000800; // lstick click
-                    controller_buttons |= 0x000040; // l
-                }
-
-                if centered_frames >= 300 && centered_frames <= 400 {
-                    controller_buttons |= 0x000040; // l
-                }
-
-                if input_accepted {
-                    centered_frames += 1
-                }
+            if frame_counter < 15*frame_mult {
+                controller_buttons |= 0x040000; // b
             }
-            else if frame_counter < 3 {
-                if input_accepted && frame_counter == 0 {
-                    if print_direction_y == 0 {
-                        printhead_x += print_direction;
-                    }
-                    printhead_y += print_direction_y;
-
-                    if print_direction_y != 0 {
-                        print_direction_y = 0;
-                        printhead_x += print_direction;
-                    }
-                    
-                    if print_direction == 0 && printhead_x >= 320 {
-                        print_direction = -1;
-                        print_direction_y = 1;
-                        printhead_x = 319;
-                    }
-                    else if print_direction == 0 && printhead_x < 0 {
-                        print_direction = 1;
-                        print_direction_y = 1;
-                        printhead_x = 0;
-                    }
-
-                    if print_direction != 0 && printhead_x >= 320 {
-                        print_direction = 0;
-                    }
-                    else if print_direction != 0 && printhead_x < 0 {
-                        print_direction = 0;
-                    }
-
-                    if print_direction_y > 0 {
-                        print_buttons = 0x000001; // down
-                    }
-                    else if print_direction > 0 {
-                        print_buttons = 0x000004; // right
-                    }
-                    else if print_direction < 0 {
-                        print_buttons = 0x000008; // left
-                    }
-                    else {
-                        print_buttons = 0;
-                    }
-                }
-
-                controller_buttons |= print_buttons;
+            else if frame_counter < 20*frame_mult {
+                controller_buttons |= 0x0; // depress b
+            }
+            else if frame_counter < 25*frame_mult {
+                controller_buttons |= 0x040000; // b
+            }
+            else if frame_counter < 30*frame_mult {
+                controller_buttons |= 0x0; // depress b
+            }
+            else if frame_counter < 40*frame_mult {
+                controller_buttons |= 0x800002; // ZR+up
+            }
+            else if frame_counter < 50*frame_mult {
+                controller_buttons |= 0x800000; // ZR
+            }
+            else if frame_counter < 100*frame_mult {
+                controller_buttons |= 0x800000; // ZR
+            }
+            else if frame_counter < 130*frame_mult {
+                controller_buttons |= 0x800200; // ZR+start
+            }
+            else if frame_counter < 140*frame_mult {
+                controller_buttons |= 0x000000; // depress all
+            }
+            else if frame_counter < 150*frame_mult {
+                controller_buttons |= 0x00008; // left
+            }
+            else if frame_counter < 155*frame_mult {
+                controller_buttons |= 0x00000; // depress left
+            }
+            else if frame_counter < 160*frame_mult {
+                controller_buttons |= 0x080000; // a
+            }
+            else if frame_counter < 165*frame_mult {
+                controller_buttons |= 0x0; // depress a
+            }
+            else if frame_counter < 170*frame_mult {
+                controller_buttons |= 0x000001; // down
+            }
+            else if frame_counter < 175*frame_mult {
+                controller_buttons |= 0x0; // depress down
+            }
+            else if frame_counter < 180*frame_mult {
+                controller_buttons |= 0x080000; // a
+            }
+            else if frame_counter < 185*frame_mult {
+                controller_buttons |= 0x0; // depress a
+            }
+            else if frame_counter < 190*frame_mult {
+                controller_buttons |= 0x4; // right
+            }
+            else if frame_counter < 195*frame_mult {
+                controller_buttons |= 0x0; // depress right
+            }
+            else if frame_counter < 200*frame_mult {
+                controller_buttons |= 0x080000; // a
+            }
+            else if frame_counter < 205*frame_mult {
+                controller_buttons |= 0x0; // depress a
+            }
+            else if frame_counter < 210*frame_mult {
+                controller_buttons |= 0x080000; // a
+            }
+            else if frame_counter < 215*frame_mult {
+                controller_buttons |= 0x0; // depress a
+            }
+            else if frame_counter < 225*frame_mult {
+                controller_buttons |= 0x200; // start
+            }
+            else if frame_counter < 225+5*frame_mult {
+                controller_buttons |= 0x0; // depress start
+            }
+            else if frame_counter < 240*frame_mult {
+                controller_buttons |= 0x200; // start
+            }
+            else if frame_counter < 250*frame_mult {
+                controller_buttons |= 0x0; // depress start
+            }
+            else if frame_counter < 260*frame_mult {
+                controller_buttons |= 0x00008; // left
+            }
+            else if frame_counter < 265*frame_mult {
+                controller_buttons |= 0x00000; // depress left
+            }
+            else if frame_counter < 270*frame_mult {
+                controller_buttons |= 0x080000; // a
+            }
+            else if frame_counter < 275*frame_mult {
+                controller_buttons |= 0x00000; // depress a
+            }
+            else if frame_counter < 280*frame_mult {
+                controller_buttons |= 0x000001; // down
+            }
+            else if frame_counter < 285*frame_mult {
+                controller_buttons |= 0x0; // depress down
+            }
+            else if frame_counter < 290*frame_mult {
+                controller_buttons |= 0x080000; // a
+            }
+            else if frame_counter < 295*frame_mult {
+                controller_buttons |= 0x0; // depress a
+            }
+            else if frame_counter < 310*frame_mult {
+                controller_buttons |= 0x200; // start
+            }
+            else if frame_counter < 320*frame_mult {
+                controller_buttons |= 0x0; // depress start
+            }
+            else if frame_counter < 325*frame_mult {
+                controller_buttons |= 0x080000; // a
+                stick_1_y = 0x800 - 0x200;
+            }
+            else if frame_counter < 330*frame_mult {
+                controller_buttons |= 0x0; // depress a
+            }
+            else if frame_counter < 335*frame_mult {
+                controller_buttons |= 0x080000; // a
+            }
+            else if frame_counter < 340*frame_mult {
+                controller_buttons |= 0x0; // depress a
+            }
+            else if frame_counter < 345*frame_mult {
+                controller_buttons |= 0x080000; // a
+            }
+            else if frame_counter < 350*frame_mult {
+                controller_buttons |= 0x0; // depress a
+            }
+            else if frame_counter < 355*frame_mult {
+                controller_buttons |= 0x080000; // a
+            }
+            else if frame_counter < 360*frame_mult {
+                controller_buttons |= 0x0; // depress a
+                stick_1_y = 0x800 + 0x200;
             }
             else {
-                if frame_counter >= 6 && frame_counter < 9 {
-                    if printhead_x >= 0 && printhead_x < 320 && printhead_y >= 0 && printhead_y < 120 {
-                        value = image_data[((printhead_x * 3) + (printhead_y * (320*3))) as usize];
-                        if value < 128 {
-                            controller_buttons |= 0x080000; // a
-                        }
-                        else {
-                            controller_buttons |= 0x040000; // b
-                        }
-                    }
-
-                    if printhead_x <= 0 {
-                        controller_buttons |= 0x000008; // left
-                    }
-                    else if printhead_x >= 319 {
-                        controller_buttons |= 0x000004; // right
-                    }
-                }
-                else {
-                    controller_buttons = 0x8000;
-                }
-
-                
-                print_buttons = 0;
+                controller_buttons |= 0x0; // nothing
             }
 
-            if centered_frames >= 500 && input_accepted {
+            if input_accepted {
                 frame_counter += 1;
             }
-            if frame_counter > 12 {
+            if frame_counter > 370*frame_mult {
                 frame_counter = 0;
             }
-            println!("{:?} {:?} {:?} {:?}, {:?} {:?}, {:x}, {:x}", centered_frames, frame_counter, printhead_x, printhead_y, print_direction, print_direction_y, value, controller_buttons);
+            //println!("{:?} {:?} {:?} {:?}, {:?} {:?}, {:x}, {:x}", centered_frames, frame_counter, printhead_x, printhead_y, print_direction, print_direction_y, value, controller_buttons);
         
             if input_accepted {
                 input_accepted = false;
@@ -693,7 +761,10 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
         let elapsed = last_loop.elapsed();
         last_loop = Instant::now();
         if elapsed.as_millis() != 0 && elapsed.as_millis() > 16 {
-            println!("{:?}ms", elapsed.as_millis());
+            //println!("{:?}ms", elapsed.as_millis());
+            if frame_counter > 0 {
+                frame_counter -= 1;
+            }
         }
 
         let recv_future_1 = match context.ep_read_async(iface_num, ep_in, 64, 10)

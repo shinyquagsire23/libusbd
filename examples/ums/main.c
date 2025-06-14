@@ -671,9 +671,9 @@ static void ums_on_data_recv(void* pkt_data)
             if (ret != UMS_BLOCKSIZE)
             {
                 printf("file read failed! %i (LUN %i)\n", ret, hdr->lun);
-                ums_sense = SCSI_UNRECOVERED_READ_ERROR;
-                ums_status = UMS_STATUS_FAIL;
-                goto ums_do_send;
+                //ums_sense = SCSI_UNRECOVERED_READ_ERROR;
+                //ums_status = UMS_STATUS_FAIL;
+                //goto ums_do_send;
             }
 
             ret = libusbd_ep_write(ums_ctx, ums_interface, ums_epBulkIn, buf, UMS_BLOCKSIZE, UMS_WRITE_TIMEOUT);

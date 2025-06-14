@@ -169,7 +169,11 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
 
     let mut dx = 0;
     let mut dy = 0;
+    let mut wheel_dx = 0;
+    let mut wheel_dy = 0;
+
     let mut mouse_idle = 0;
+    let mut wheel_idle = 0;
 
     loop {
         controller_send[0] = 0x81;
@@ -254,12 +258,12 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
             //println!("{} {}", event.scancode, event.pressed);
         }
 
-        let mut wheel_dx: i16 = 0;
-        let mut wheel_dy: i16 = 0;
+        
 
         mouse_idle += 1;
+        wheel_idle += 1;
 
-        for _i in 0..100 {
+        for _i in 0..1000 {
             let event = match rx_mouse.try_recv() {
                 Ok(event) => event,
                 _ => { break; },
@@ -283,8 +287,12 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
                 mouse_idle = 0;
             }
 
-            wheel_dx += event.wheel_dx as i16;
-            wheel_dy += event.wheel_dy as i16;
+            wheel_dx += event.wheel_dx as i32;
+            wheel_dy += event.wheel_dy as i32;
+
+            if event.wheel_dx != 0 || event.wheel_dy != 0 {
+                wheel_idle = 0;
+            }
 
             wheel_dx = wheel_dx.max(-127).min(127);
             wheel_dy = wheel_dy.max(-127).min(127);
@@ -296,6 +304,13 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
             dx = 0;
             dy = 0;
         }
+
+        if wheel_idle >= 10 {
+            wheel_dx = 0;
+            wheel_dy = 0;
+        }
+
+        //println!("{:?} {:?} {:?}", wheel_idle, wheel_dx, wheel_dy);
 
         // map keyboard to buttons
         let mut controller_buttons: u32 = 0x008000; // charging grip?
@@ -343,11 +358,26 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
                 0x4F => 0x000004, // right
                 0x52 => 0x000002, // up
                 0x51 => 0x000001, // down
-                0x1B => 0x080000, // kb x -> a
+                
+
+                /*0x1B => 0x080000, // kb x -> a
                 0x1D => 0x040000, // kb z -> b
 
                 0x06 => 0x010000, // kb c -> y
-                0x19 => 0x020000, // kb v -> x
+                0x19 => 0x020000, // kb v -> x*/
+
+                // DIVA
+                0x16 => 0x080000, // kb s -> a
+                0x4 => 0x040000, // kb a -> b
+                0x34 => 0x020000, // kb ' -> x
+                0x33 => 0x010000, // kb ; -> y
+
+                0x1B => 0x020000, // kb x -> x
+                0x1D => 0x010000, // kb z -> y
+
+                0x37 => 0x040000, // kb . -> b
+                0x38 => 0x080000, // kb / -> a
+
 
                 /*0x1A => 0x010000, // kb w -> n64 c-up/y
                 0x04 => 0x020000, // kb a -> n64 c-left/x
@@ -375,6 +405,7 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
             };
 
             match k {
+                /*
                 0x1A => { // kb w -> lstick up
                     stick_1_y = 0x800 + 0x600;
                 }, 
@@ -387,6 +418,22 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
                 0x07 => { // kb d -> lstick right
                     stick_1_x = 0x800 + 0x600;
                 }, 
+                */
+
+                // DIVA
+                0x36 => { // kb , -> lstick right
+                    stick_1_x = 0x800 + 0x600; 
+                },
+
+                0x6 => { // kb c -> lstick left
+                    stick_1_x = 0x800 - 0x600; 
+                },
+
+                0x2C => { // kb space -> sticks together
+                    stick_1_x = 0x800 - 0x600;
+                    stick_2_x = 0x800 + 0x600;
+                },
+                // END DIVA
 
                 0x0C => { // kb i -> rstick up
                     stick_2_y = 0x800 + 0x600;
@@ -410,7 +457,27 @@ async fn usb_print_task(rx: Receiver<SentKeypress>, rx_mouse: Receiver<SentMouse
 
                 _ => {},
             }
+
+            
         }
+
+        if dx < 0 {
+            stick_1_x = 0x800 - 0x600;
+        }
+        else if dx > 0 {
+            stick_1_x = 0x800 + 0x600;
+        }
+
+        if wheel_dy < 0 {
+            stick_1_x = 0x800 - 0x600;
+            stick_2_x = 0x800 + 0x600;
+        }
+        else if wheel_dy > 0 {
+            stick_1_x = 0x800 + 0x600;
+            stick_2_x = 0x800 - 0x600;
+        }
+
+        //println!("{:?} {:02x}", dx, stick_1_x);
 
         //let dx_upscale = ((dx as i32) << 3).min(0x600).max(-0x600);
         //let dy_upscale = ((dy as i32) << 3).min(0x600).max(-0x600);
@@ -1035,6 +1102,13 @@ fn window(tx: Sender<SentKeypress>, tx_mouse: Sender<SentMouse>)
                             let f_dy = b.max(-1.0).min(1.0);
                             dx = (f_dx * 127.0) as i8;
                             dy = (f_dy * 127.0) as i8;
+                        },
+                        MouseScrollDelta::PixelDelta(a) => {
+                            let f_dx = (a.x * 0.009).max(-127.0).min(127.0);
+                            let f_dy = (a.y * 0.009).max(-127.0).min(127.0);
+                            dx = (f_dx) as i8;
+                            dy = (f_dy) as i8;
+                            //println!("{:?}", event);
                         },
                         _ => (),
                     };
