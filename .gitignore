@@ -25,3 +25,5 @@ examples/rust_splatpost/target/*
 boot_args.txt
 mouse_hid.txt
 *.img
+examples/nintendo_mitm/example_nintendo_mitm
+example_nintendo_mitm

@@ -18,6 +18,7 @@ Cross-OS library for implementing USB device-mode interfaces. WIP. I'm currently
  - `examples/rust_kvm`: A simple software KVM which outputs keystrokes/mouse input performed in a window to an emulated HID device (video [here](https://www.youtube.com/watch?v=k16TgXT1ggs)).
  - `examples/rust_nintendo`: Emulates a wired Nintendo Switch controller. Keyboard input is translated to controller buttonpresses at 120Hz.
  - `examples/rust_splatpost`: Emulates a wired Nintendo Switch controller, but pressing P will print `splatpost.png` to Splatoon 2/3.
+ - `examples/nintendo_mitm`: Acts as both a USB host and USB device to man-in-the-middle Nintendo Switch 2 controllers.
 
  # Linux build dependencies:
  ```
