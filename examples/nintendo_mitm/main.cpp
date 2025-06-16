@@ -129,6 +129,16 @@ int ns2_send(controller_ctx *pCCtx, const uint8_t* buf, int len) {
         hex_dump(buf, len);
 #endif
 
+#if 0
+    if (len > 64) {
+        for (int i = 0; i < len; i += 64) {
+            res = ns2_send(pCCtx, buf + i, len % 64);
+            if (res) break;
+        }
+        return res;
+    }
+#endif
+
     res = libusb_bulk_transfer(pCCtx->usbhandle, pCCtx->sidechannel.out_ep, (uint8_t*)buf, len, &transferred, 1000); // 1-second timeout
     if (res == 0 && transferred == len) {
         //printf("(MITM) TX'd %d bytes successfully\n", transferred);
@@ -527,7 +537,7 @@ restart_loop:
         return -1;
     }
     
-    res = libusbd_ep_read_start(pCtx, iface_b_num, iface_b_ep_in, 64, 10);
+    res = libusbd_ep_read_start(pCtx, iface_b_num, iface_b_ep_in, 512, 10);
     printf("res %x\n", res);
 
     hid_set_nonblocking(cctx.hid_handle, 1);
@@ -574,7 +584,7 @@ restart_loop:
 
             ns2_send(&cctx, readBuf, transferred); // TODO error check
 
-            res = libusbd_ep_read_start(pCtx, iface_b_num, iface_b_ep_in, 64, 10);
+            res = libusbd_ep_read_start(pCtx, iface_b_num, iface_b_ep_in, 512, 10);
             if (res == LIBUSBD_NOT_ENUMERATED) {
                 goto restart_loop;
             }
