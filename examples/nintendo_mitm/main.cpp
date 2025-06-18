@@ -189,6 +189,70 @@ int ns2_read(controller_ctx *pCCtx, uint8_t* buf) {
     return transferred;
 }
 
+typedef struct __attribute__((packed)) ns2_sidechannel_hdr {
+    uint8_t cmd;
+    uint16_t direction;
+    uint16_t subcmd;
+    uint16_t extraSz;
+    uint8_t extraSzHi;
+} ns2_sidechannel_hdr;
+
+typedef struct __attribute__((packed)) spi_read_args {
+    uint32_t unk;
+    uint32_t offset;
+} spi_read_args;
+
+int ns2_send_cmd_subcmd(controller_ctx* pCCtx, uint16_t cmd, uint16_t subcmd, const void* pExtra, uint32_t extraSz) {
+    size_t tmpSz = extraSz + sizeof(ns2_sidechannel_hdr);
+    uint8_t* tmp = (uint8_t*)malloc(tmpSz);
+
+    if (!tmp) {
+        printf("Failed to allocate tmp in ns2_send_cmd_subcmd\n");
+        return -1;
+    }
+
+    memset(tmp, 0, tmpSz);
+    ns2_sidechannel_hdr* hdr = (ns2_sidechannel_hdr*)tmp;
+    hdr->cmd = cmd;
+    hdr->direction = 0x91;
+    hdr->subcmd = subcmd;
+    hdr->extraSz = extraSz & 0xFFFF;
+    hdr->extraSzHi = (extraSz >> 16) & 0xFF;
+    if (pExtra) {
+        memcpy(tmp+sizeof(ns2_sidechannel_hdr), pExtra, extraSz);    
+    }
+    int res = ns2_send(pCCtx, tmp, tmpSz);
+
+    free(tmp);
+    return res;
+}
+
+int ns2_spi_read(controller_ctx* pCCtx, uint32_t offset, uint8_t sz, uint8_t* pBufOut) {
+    spi_read_args args = { .unk = (uint32_t)sz | 0x7E00, .offset = offset };
+    int res = ns2_send_cmd_subcmd(pCCtx, 0x02, 0x04, &args, sizeof(args));
+
+    while (!stop) {
+        
+        int bytes_read = ns2_read(&cctx, sidechannel_rd_buf);
+        if (bytes_read) {
+            //printf("Read ");
+            //hex_dump((const uint8_t*)sidechannel_rd_buf, bytes_read);
+
+            ns2_sidechannel_hdr* hdr = (ns2_sidechannel_hdr*)sidechannel_rd_buf;
+            if (hdr->cmd == 0x02 && hdr->subcmd == 0x04) {
+                if (pBufOut) {
+                    memcpy(pBufOut, sidechannel_rd_buf + 0x10, sz);
+                }
+                //hex_dump((const uint8_t*)sidechannel_rd_buf, bytes_read);
+                break;
+            }
+        }
+        msleep(1);
+    }
+
+    return res;
+}
+
 int ns2_init(controller_ctx *pCCtx)
 {
     unsigned char buf[0x400];
@@ -203,50 +267,290 @@ int ns2_init(controller_ctx *pCCtx)
     
     if(!bluetooth)
     {
-        // Get MAC Left
-        memset(buf, 0x00, 0x400);
-        unsigned char req_1[] = {0x3, 0x91, 0x0, 0xd, 0x0, 0x8, 0x0, 0x0, 0x1, 0x0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
-        memcpy(buf, req_1, sizeof(req_1));
-        //hid_exchange(handle_side, buf, sizeof(req_1));
-
-        ns2_send(pCCtx, req_1, sizeof(req_1));
-
-        // Do handshaking
-        memset(buf, 0x00, 0x400);
-        unsigned char req_2[] = {0x9, 0x91, 0x0, 0x7, 0x0, 0x8, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
-        memcpy(buf, req_2, sizeof(req_2));
-        //hid_exchange(handle_side, buf, sizeof(req_2));
-
-        ns2_send(pCCtx, req_2, sizeof(req_2));
-    }
+        while (!stop) {
+            msleep(10);
+            int bytes_read = ns2_read(&cctx, sidechannel_rd_buf);
+            if (!bytes_read) {
+                break;
+            }
+        }
 
 #if 0
-    // Enable vibration
-    memset(buf, 0x00, 0x400);
-    buf[0] = 0x01; // Enabled
-    joycon_send_subcommand(handle, 0x1, 0x48, buf, 1);
-    
-    // Enable IMU data
-    memset(buf, 0x00, 0x400);
-    buf[0] = 0x01; // Enabled
-    joycon_send_subcommand(handle, 0x1, 0x40, buf, 1);
-    
-    // Increase data rate for Bluetooth
-    if (bluetooth)
-    {
-       memset(buf, 0x00, 0x400);
-       buf[0] = 0x31; // Enabled
-       joycon_send_subcommand(handle, 0x1, 0x3, buf, 1);
+        unsigned char req_1[] = {0x3, 0x91, 0x0, 0xd, 0x0, 0x8, 0x0, 0x0, 0x1, 0x0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+        ns2_send(pCCtx, req_1, sizeof(req_1));
+        msleep(10);
+        ns2_read(&cctx, sidechannel_rd_buf);
+
+        unsigned char req_2[] = {0x07,0x91,0x00,0x01,0x00,0x00,0x00,0x00}; // Enables SPI reads?
+        ns2_send(pCCtx, req_2, sizeof(req_2));
+        msleep(10);
+        ns2_read(&cctx, sidechannel_rd_buf);
+
+        unsigned char req_3[] = {0x9, 0x91, 0x0, 0x7, 0x0, 0x8, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
+        ns2_send(pCCtx, req_3, sizeof(req_3));
+        msleep(10);
+        ns2_read(&cctx, sidechannel_rd_buf);
+#endif
+
+        libusb_control_transfer(cctx.usbhandle, 0xc0, 0x03, 0x0000, 0x0000, (uint8_t*)sidechannel_rd_buf, 0x40, 1000);
+        printf("Controller info 3:\n");
+        hex_dump(sidechannel_rd_buf, 0x40);
+        libusb_control_transfer(cctx.usbhandle, 0xc0, 0x02, 0x0000, 0x0000, (uint8_t*)sidechannel_rd_buf, 0x40, 1000);
+        printf("Controller info 2:\n");
+        hex_dump(sidechannel_rd_buf, 0x40);
+        libusb_control_transfer(cctx.usbhandle, 0xc0, 0x01, 0x0000, 0x0000, (uint8_t*)sidechannel_rd_buf, 0x40, 1000);
+        printf("Controller info 1:\n");
+        hex_dump(sidechannel_rd_buf, 0x40);
+
+        // Basic init with IMU
+#if 0
+        uint8_t extra_03_0d[] = {0x01, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+        ns2_send_cmd_subcmd(pCCtx, 0x03, 0x0d, extra_03_0d, sizeof(extra_03_0d));
+        ns2_read(&cctx, sidechannel_rd_buf);
+
+        uint8_t extra_07_01[] = {0x00};
+        ns2_send_cmd_subcmd(pCCtx, 0x07, 0x01, NULL, 0);
+        ns2_read(&cctx, sidechannel_rd_buf);
+
+        ns2_send_cmd_subcmd(pCCtx, 0x16, 0x01, NULL, 0);
+        ns2_read(&cctx, sidechannel_rd_buf);
+
+        // 0x15 cmds
+        // 0x03 0x07 final pairing
+
+        // Pairing related?
+        //ns2_send_cmd_subcmd(pCCtx, 0x03, 0x09, NULL, 0);
+        //ns2_read(&cctx, sidechannel_rd_buf);
+
+        // Set player LED
+        uint32_t extra_09_07[] = {0xFF, 0x0};
+        ns2_send_cmd_subcmd(pCCtx, 0x09, 0x07, extra_09_07, sizeof(extra_09_07));
+        ns2_read(&cctx, sidechannel_rd_buf);
+
+        uint32_t extra_0c_02 = 0x37;
+        ns2_send_cmd_subcmd(pCCtx, 0x0c, 0x02, &extra_0c_02, sizeof(extra_0c_02));
+        msleep(300);
+        ns2_read(&cctx, sidechannel_rd_buf);
+
+        // Bunch of SPI reads
+        uint8_t spi_calib_tmp[0x80];
+        ns2_spi_read(pCCtx, 0x13080, 0x40, spi_calib_tmp);
+        ns2_spi_read(pCCtx, 0x1fc040, 0x40, spi_calib_tmp);
+        ns2_spi_read(pCCtx, 0x13040, 0x10, spi_calib_tmp);
+        ns2_spi_read(pCCtx, 0x13100, 0x18, spi_calib_tmp);
+
+        ns2_send_cmd_subcmd(pCCtx, 0x11, 0x03, NULL, 0);
+        ns2_read(&cctx, sidechannel_rd_buf);
+
+        ns2_spi_read(pCCtx, 0x13060, 0x20, spi_calib_tmp);
+
+        // 0x0a 0x08
+
+        uint32_t extra_0c_04 = 0x37; // or 0x27
+        ns2_send_cmd_subcmd(pCCtx, 0x0c, 0x04, &extra_0c_04, sizeof(extra_0c_04));
+        msleep(300);
+        ns2_read(&cctx, sidechannel_rd_buf);
+
+        uint32_t extra_03_0a = 0x8;
+        ns2_send_cmd_subcmd(pCCtx, 0x03, 0x0a, &extra_03_0a, sizeof(extra_03_0a));
+        ns2_read(&cctx, sidechannel_rd_buf);
+
+        //uint32_t extra_10_01 = 0x8;
+        ns2_send_cmd_subcmd(pCCtx, 0x10, 0x01, NULL, 0);
+        ns2_read(&cctx, sidechannel_rd_buf);
+
+        ns2_send_cmd_subcmd(pCCtx, 0x1, 0x0c, NULL, 0);
+        ns2_read(&cctx, sidechannel_rd_buf);
+
+        // On actually seeing input:
+        uint32_t extra_03_0c = 0x1;
+        ns2_send_cmd_subcmd(pCCtx, 0x03, 0x0c, &extra_03_0c, sizeof(extra_03_0c));
+        ns2_read(&cctx, sidechannel_rd_buf);
+
+        // Set player LED
+        uint32_t extra_09_07_2[] = {0x01, 0x0};
+        ns2_send_cmd_subcmd(pCCtx, 0x09, 0x07, extra_09_07_2, sizeof(extra_09_07_2));
+        ns2_read(&cctx, sidechannel_rd_buf);
+
+        uint32_t extra_08_02 = 0x1;
+        ns2_send_cmd_subcmd(pCCtx, 0x08, 0x02, &extra_08_02, sizeof(extra_08_02));
+        ns2_read(&cctx, sidechannel_rd_buf);
+
+        // Make some noises
+#if 0
+        for (int i = 0; i < 0x8; i++) {
+            uint32_t extra_0a_02 = i;
+            printf("0x%x\n", i);
+            ns2_send_cmd_subcmd(pCCtx, 0x0a, 0x02, &extra_0a_02, sizeof(extra_0a_02));
+            ns2_read(&cctx, sidechannel_rd_buf);
+            msleep(800);
+            
+            if (stop) {
+                break;
+            }
+        }
+#endif
+
+    // Read NFC
+#if 0
+        /*ns2_send_cmd_subcmd(pCCtx, 0x01, 0x0c, NULL, 0);
+        msleep(10);
+        ns2_read(&cctx, sidechannel_rd_buf);*/
+
+        while (!stop) {
+            uint8_t extra_01_03[] = {0x00,0x00,0x00,0x2c,0x01};
+            ns2_send_cmd_subcmd(pCCtx, 0x01, 0x03, extra_01_03, sizeof(extra_01_03));
+            msleep(10);
+            ns2_read(&cctx, sidechannel_rd_buf);
+
+            for (int i = 0; i < 0x100; i++) {
+                ns2_send_cmd_subcmd(pCCtx, 0x01, 0x05, NULL, 0);
+                msleep(10);
+                ns2_read(&cctx, sidechannel_rd_buf);
+
+                if (sidechannel_rd_buf[0x12] != 0x0) {
+                    break;
+                }
+
+                ns2_send_cmd_subcmd(pCCtx, 0x01, 0x04, NULL, 0);
+                msleep(10);
+                ns2_read(&cctx, sidechannel_rd_buf);
+
+                ns2_send_cmd_subcmd(pCCtx, 0x01, 0x04, NULL, 0);
+                msleep(10);
+                ns2_read(&cctx, sidechannel_rd_buf);
+
+                ns2_send_cmd_subcmd(pCCtx, 0x01, 0x03, extra_01_03, sizeof(extra_01_03));
+                msleep(10);
+                ns2_read(&cctx, sidechannel_rd_buf);
+
+                if (stop) {
+                    break;
+                }
+                msleep(1000);
+            }
+            
+
+            ns2_send_cmd_subcmd(pCCtx, 0x01, 0x04, NULL, 0);
+            msleep(10);
+            ns2_read(&cctx, sidechannel_rd_buf);
+
+            uint8_t extra_01_03_2[] = {0x00,0xe8,0x03,0x2c,0x01};
+            ns2_send_cmd_subcmd(pCCtx, 0x01, 0x03, extra_01_03_2, sizeof(extra_01_03_2));
+            msleep(100);
+            ns2_read(&cctx, sidechannel_rd_buf);
+
+
+
+
+            for (int i = 0; i < 0x100; i++) {
+                ns2_send_cmd_subcmd(pCCtx, 0x01, 0x05, NULL, 0);
+                msleep(10);
+                ns2_read(&cctx, sidechannel_rd_buf);
+
+                if (sidechannel_rd_buf[0x12] != 0x0) {
+                    break;
+                }
+
+                ns2_send_cmd_subcmd(pCCtx, 0x01, 0x04, NULL, 0);
+                msleep(10);
+                ns2_read(&cctx, sidechannel_rd_buf);
+
+                ns2_send_cmd_subcmd(pCCtx, 0x01, 0x04, NULL, 0);
+                msleep(10);
+                ns2_read(&cctx, sidechannel_rd_buf);
+
+                ns2_send_cmd_subcmd(pCCtx, 0x01, 0x03, extra_01_03, sizeof(extra_01_03));
+                msleep(10);
+                ns2_read(&cctx, sidechannel_rd_buf);
+
+                if (stop) {
+                    break;
+                }
+                msleep(1000);
+            }
+
+            uint8_t extra_01_06[] = {0xd0, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x03, 0x00, 0x3b, 0x3c, 0x77, 0x78, 0x86, 0x00, 0x00};
+            ns2_send_cmd_subcmd(pCCtx, 0x01, 0x06, extra_01_06, sizeof(extra_01_06));
+            msleep(200);
+            ns2_read(&cctx, sidechannel_rd_buf);
+
+
+            for (int i = 0; i < 0x100; i++) {
+                ns2_send_cmd_subcmd(pCCtx, 0x01, 0x05, NULL, 0);
+                msleep(10);
+                ns2_read(&cctx, sidechannel_rd_buf);
+
+                if (sidechannel_rd_buf[0x12] != 0x0) {
+                    break;
+                }
+
+                ns2_send_cmd_subcmd(pCCtx, 0x01, 0x04, NULL, 0);
+                msleep(10);
+                ns2_read(&cctx, sidechannel_rd_buf);
+
+                ns2_send_cmd_subcmd(pCCtx, 0x01, 0x04, NULL, 0);
+                msleep(10);
+                ns2_read(&cctx, sidechannel_rd_buf);
+
+                ns2_send_cmd_subcmd(pCCtx, 0x01, 0x03, extra_01_03, sizeof(extra_01_03));
+                msleep(10);
+                ns2_read(&cctx, sidechannel_rd_buf);
+
+                if (stop) {
+                    break;
+                }
+                msleep(1000);
+            }
+
+            uint16_t extra_01_15 = 0x0;
+            ns2_send_cmd_subcmd(pCCtx, 0x01, 0x15, &extra_01_15, sizeof(extra_01_15));
+            msleep(200);
+            ns2_read(&cctx, sidechannel_rd_buf);
+        }
+
+        
+
+        msleep(1000);
+#endif
+
+
+        /*uint32_t extra_0c_04 = 0x37;
+        ns2_send_cmd_subcmd(pCCtx, 0x0c, 0x04, &extra_0c_04, sizeof(extra_0c_04));
+        msleep(100);
+        ns2_read(&cctx, sidechannel_rd_buf);*/
+#endif
+
+        // SPI dump
+#if 0
+        unsigned char req_4[] = {0x0c, 0x91, 0x00, 0x02, 0x00, 0x04, 0x00, 0x00, 0x27, 0x00, 0x00, 0x00}; 
+        ns2_send(pCCtx, req_4, sizeof(req_4));
+        msleep(10);
+        ns2_read(&cctx, sidechannel_rd_buf);
+
+        uint8_t spi_tmp[0x80];
+        FILE* f = fopen("joycon_r_spi_full_main_not_imuing_2.bin", "wb");
+        for (int i = 0x0; i < 0x200000; i += 0x40) {
+            memset(spi_tmp, 0, sizeof(spi_tmp));
+            ns2_spi_read(pCCtx, /*0x13060*/i, 0x40, spi_tmp);
+            fwrite(spi_tmp, 0x40, 1, f);
+        }
+        fclose(f);
+#endif
     }
-    
-    //Read device's S/N
-    spi_read(handle, 0x6002, sn_buffer, 0xE);
-    
-    printf("Successfully initialized %ls with S/N: %c%c%c%c%c%c%c%c%c%c%c%c%c%c!\n", 
-        name, sn_buffer[0], sn_buffer[1], sn_buffer[2], sn_buffer[3], 
-        sn_buffer[4], sn_buffer[5], sn_buffer[6], sn_buffer[7], sn_buffer[8], 
-        sn_buffer[9], sn_buffer[10], sn_buffer[11], sn_buffer[12], 
-        sn_buffer[13]);
+
+    // Look at HID
+#if 0
+    hid_set_nonblocking(cctx.hid_handle, 1);
+    while (!stop) {
+        res = hid_read(cctx.hid_handle, hid_rd_buf, 0x400);
+        if(res > 0) {
+#ifdef DEBUG_PRINT
+            printf("(MITM) RX from HID: ");
+            hex_dump(hid_rd_buf, res);
+#endif
+        }
+    }
 #endif
 
     return 0;
@@ -446,7 +750,7 @@ int main(int argc, char* argv[])
     libusb_free_device_list(devs, 1);
 
     printf("Initializing controller?\n");
-    //ns2_init(&cctx);
+    ns2_init(&cctx);
     printf("Initialized controller.");
     
     // Get hid desc
