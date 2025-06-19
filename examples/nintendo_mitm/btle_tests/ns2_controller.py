@@ -202,8 +202,11 @@ class NS2Controller:
             future = self._pending_responses.get(future_key)
             if future and not future.done():
                 future.set_result(resp_data)
+                #hexdump(resp_data)
+                print("Resp time:", (time.time() - future._creation_time) * 1000.0)
             else:
                 print("Missing future???", future_key)
+
             
 
         async def _callback_hid_full(*args, **kargs):
@@ -218,6 +221,7 @@ class NS2Controller:
             
             future_key = (cmd & 0xFF, subcmd & 0xFF)
             future = asyncio.get_event_loop().create_future()
+            future._creation_time = time.time()
             self._pending_responses[future_key] = future
 
             print("Sending:")
@@ -292,4 +296,7 @@ class NS2Controller:
                 #await process_hid_data(hid_data)
                 #print(hid_data)
 
+                start = time.time()
                 await asyncio.sleep(0.001)
+                end = time.time()
+                #print("Heartbeat:", (end-start)*1000.0)
