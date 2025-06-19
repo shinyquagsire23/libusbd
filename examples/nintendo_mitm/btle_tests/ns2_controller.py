@@ -62,6 +62,7 @@ class NS2Controller:
         self._num_6dof = 0
         self._vid = 0
         self._pid = 0
+        self._pending_responses = {}
 
     def add_tlv_callback(self, type, fn):
         if self._tlv_callbacks.get(type, None) is None:
@@ -133,57 +134,6 @@ class NS2Controller:
         self.last_button_l = False
         self.last_button_r = False
 
-        '''
-        async def process_basic_hid_data(hid_data):
-            mouse_data = hid_data[0x10:0x14]
-            mouse_x, mouse_y = struct.unpack("<hh", mouse_data)
-            if not self.last_mouse_set:
-                self.last_mouse_x = mouse_x
-                self.last_mouse_y = mouse_y
-                self.last_mouse_set = True
-            delta_x = mouse_x - self.last_mouse_x
-            delta_y = mouse_y - self.last_mouse_y
-            if abs(delta_x) > 1000:
-                delta_x = 0
-            if abs(delta_y) > 1000:
-                delta_y = 0
-            mouse.move(delta_x, delta_y)
-            #print("mouse", (delta_x, delta_y))
-
-            button_l = (hid_data[4] & 0x40) == 0x40
-            button_r = (hid_data[4] & 0x80) == 0x80
-            if button_l:
-                mouse.press(Button.left)
-            else:
-                mouse.release(Button.left)
-            if button_r:
-                mouse.press(Button.right)
-            else:
-                mouse.release(Button.right)
-
-            stick_x = hid_data[0xD] | ((hid_data[0xE] & 0xF)<<8)
-            stick_y = (hid_data[0xF]<<4) | ((hid_data[0xE] & 0xF0)>>8)
-
-            scroll_x = 0
-            scroll_y = 0
-
-            scroll_x = -(((stick_x - 0x300) / (0xd00 - 0x300)) - 0.5)
-            scroll_y = (((stick_y - 0x300) / (0xd00 - 0x300)) - 0.5)
-
-            #print(hex(stick_x), hex(stick_y), scroll_x, scroll_y)
-            scroll_x = int(scroll_x * 6)
-            scroll_y = int(scroll_y * 6)
-            mouse.scroll(scroll_x, scroll_y)
-
-            print((time.time() - self.last_time) * 1000.0)
-
-            self.last_mouse_x = mouse_x
-            self.last_mouse_y = mouse_y
-            self.last_time = time.time()
-
-            #hexdump(hid_data)
-        '''
-
         async def process_hid_data(hid_data):
             print((time.time() - self.last_time) * 1000.0)
             self.last_time = time.time()
@@ -236,25 +186,55 @@ class NS2Controller:
 
         async def _callback_generic(*args, **kargs):
             print("NOTIFY", args, kargs)
-            hexdump(args[1])
+            resp_data = args[1]
+            hexdump(resp_data)
+
+        async def _callback_sidechannel_response(*args, **kargs):
+            #print("NOTIFY", args, kargs)
+            resp_data = args[1]
+            #hexdump(resp_data)
+
+            cmd, unk1, unk2, subcmd, unk3, extra_len_lo, extra_len_hi = struct.unpack("<BBBBBHB", resp_data[:8])
+            extra_len = (extra_len_lo | (extra_len_hi << 16)) & 0xFFFFFF
+            extra_data = resp_data[8:]
+
+            future_key = (cmd & 0xFF, subcmd & 0xFF)
+            future = self._pending_responses.get(future_key)
+            if future and not future.done():
+                future.set_result(resp_data)
+            else:
+                print("Missing future???", future_key)
+            
 
         async def _callback_hid_full(*args, **kargs):
             #print("NOTIFY HID FULL", args, kargs)
 
             hid_data = args[1]
-            hexdump(hid_data)
+            #hexdump(hid_data)
             await process_hid_data(hid_data)
 
-        async def _callback_sidechannel(*args, **kargs):
-            print("NOTIFY SIDECHANNEL RESP", args, kargs)
-            hexdump(args[1])
-
         async def send_cmd(cmd, subcmd, extra=bytes()):
-            data = struct.pack("<BHHHB", cmd & 0xFF, 0x91, subcmd, len(extra) & 0xFFFF, (((len(extra) & 0xFFFFFF) >> 16) & 0xFF)) + extra
+            data = struct.pack("<BBBBBHB", cmd & 0xFF, 0x91, 0x00, subcmd, 0x00, len(extra) & 0xFFFF, (((len(extra) & 0xFFFFFF) >> 16) & 0xFF)) + extra
+            
+            future_key = (cmd & 0xFF, subcmd & 0xFF)
+            future = asyncio.get_event_loop().create_future()
+            self._pending_responses[future_key] = future
+
             print("Sending:")
             hexdump(data)
             await client.write_gatt_char(NS2_SIDECHANNEL_IN, data, False)
-            await asyncio.sleep(0.05)
+
+            response = None
+            try:
+                response = await asyncio.wait_for(future, timeout=2.0)
+            finally:
+                self._pending_responses.pop(future_key, None)
+
+            #print("Future returned:")
+            #hexdump(response)
+
+            return response
+            
 
         client.set_disconnected_callback(_disconnected)
 
@@ -281,8 +261,8 @@ class NS2Controller:
             
             await client.start_notify(full_hid_output, _callback_hid_full)
             #await client.start_notify(NS2_UNKNOWN_NOTIFY, _callback_generic)
-            await client.start_notify(NS2_BASIC_INPUT_UUID, _callback_generic)
-            await client.start_notify(NS2_SIDECHANNEL_OUT, _callback_sidechannel)
+            #await client.start_notify(NS2_BASIC_INPUT_UUID, _callback_generic)
+            await client.start_notify(NS2_SIDECHANNEL_OUT, _callback_sidechannel_response)
 
             # skip 0x03 0x0d
             await send_cmd(0x07, 0x01)
@@ -307,27 +287,9 @@ class NS2Controller:
             await send_cmd(0x09, 0x07, struct.pack("<LL", 0x1, 0))
             await send_cmd(0x08, 0x02, struct.pack("<L", 0x1))
 
-            #self.add_tlv_callback(TLV_CMD_RESP, callback_cmd)
-
-            #await send_cmd(ENABLE_ADB_CMD)
-            #await send_tlv(TLV_DM_SENSE_MODE_SET, [0x0]) # Mouse mode
-            #await send_tlv(TLV_UPGRADE_OPR_REQ, [0x2])
-
-            test = 0
             while True:
-                await asyncio.sleep(0.001)
-
                 #hid_data = await client.read_gatt_char(full_hid_output)
                 #await process_hid_data(hid_data)
                 #print(hid_data)
 
-                #await vibrator_stepless(0xFFFF, test & 0xFFFF, 1000)
-                
-                #hex_dump(await client.read_gatt_char(SIX_DOF_UUID))
-                #await send_tlv_alt(0x0, struct.pack("<HL", test, 1000))
-                #print(await client.write_gatt_char(CONTROL_INFORMATION_UUID, struct.pack("<HBHL", 0x600, 0x0, test, 1000), True))
-                #print(await client.write_gatt_char(UNK_1004_UUID, struct.pack("<HBHL", 0x600, 0x0, test, 1000), True))
-                #await send_cmd(ENABLE_ADB_CMD)
-
-                #hexdump(await client.read_gatt_char(HID_REPORT_MAP))
-                test = (test + 1) % 1000
+                await asyncio.sleep(0.001)
