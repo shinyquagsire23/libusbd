@@ -138,6 +138,9 @@ class NS2Controller:
             print((time.time() - self.last_time) * 1000.0)
             self.last_time = time.time()
 
+            if self._pid not in NS2_JOYCON_PIDS:
+                return
+
             mouse_data = hid_data[0x9:0xd]
             delta_x, delta_y = struct.unpack("<hh", mouse_data)
             if abs(delta_x) > 1000:
@@ -146,11 +149,11 @@ class NS2Controller:
                 delta_y = 0
             
             #print("mouse", (delta_x, delta_y))
-            button_l = (hid_data[2] & 0x10) == 0x10
-            button_r = (hid_data[2] & 0x20) == 0x20
+            button_l = (hid_data[2] & NS2_JC_BUTTON_BUMPER) == NS2_JC_BUTTON_BUMPER
+            button_r = (hid_data[2] & NS2_JC_BUTTON_TRIGGER) == NS2_JC_BUTTON_TRIGGER
 
             stick_x = hid_data[0x5] | ((hid_data[0x6] & 0xF)<<8)
-            stick_y = (hid_data[0x7]<<4) | ((hid_data[0x5] & 0xF0)>>8)
+            stick_y = (hid_data[0x7]<<4) | ((hid_data[0x6] & 0xF0)>>4)
 
             scroll_x = -(((stick_x - 0x300) / (0xd00 - 0x300)) - 0.5)
             scroll_y = (((stick_y - 0x300) / (0xd00 - 0x300)) - 0.5)
@@ -173,7 +176,7 @@ class NS2Controller:
             self.last_button_l = button_l
             self.last_button_r = button_r
 
-            #hexdump(hid_data)
+            hexdump(hid_data)
 
         async def _disconnected(*args, **kwargs):
             print("DISCONNECT", args, kwargs)
@@ -217,7 +220,7 @@ class NS2Controller:
             await process_hid_data(hid_data)
 
         async def send_cmd(cmd, subcmd, extra=bytes()):
-            data = struct.pack("<BBBBBHB", cmd & 0xFF, 0x91, 0x00, subcmd, 0x00, len(extra) & 0xFFFF, (((len(extra) & 0xFFFFFF) >> 16) & 0xFF)) + extra
+            data = struct.pack("<BBBBBHB", cmd & 0xFF, 0x91, 0x01, subcmd, 0x00, len(extra) & 0xFFFF, (((len(extra) & 0xFFFFFF) >> 16) & 0xFF)) + extra
             
             future_key = (cmd & 0xFF, subcmd & 0xFF)
             future = asyncio.get_event_loop().create_future()
@@ -227,6 +230,7 @@ class NS2Controller:
             print("Sending:")
             hexdump(data)
             await client.write_gatt_char(NS2_SIDECHANNEL_IN, data, False)
+            #await client.write_gatt_char(self._alt_sidechannel_input, bytes([0x00]*32)+data, False)
 
             response = None
             try:
@@ -248,55 +252,94 @@ class NS2Controller:
             #print(client.metadata.get("uuids", []))
 
             is_next = False
+            sidechannel_alt_next = False
+            sidechannel_alt_out_next = False
             full_hid_output = NS2_BASIC_INPUT_UUID
+            self._alt_sidechannel_input = NS2_SIDECHANNEL_IN
+            self._alt_sidechannel_output = NS2_SIDECHANNEL_OUT
             services = await client.get_services()
             for idx in services.characteristics:
                 c = services.characteristics[idx]
                 if c.uuid == NS2_BASIC_INPUT_UUID:
                     is_next = True
+                elif c.uuid == NS2_SIDECHANNEL_IN:
+                    sidechannel_alt_next = True
+                elif c.uuid == NS2_SIDECHANNEL_OUT:
+                    sidechannel_alt_out_next = True
                 elif is_next:
                     full_hid_output = c.uuid
                     is_next = False
-                print(is_next, c.uuid, c.properties)
+                elif sidechannel_alt_next:
+                    self._alt_sidechannel_input = c.uuid
+                    sidechannel_alt_next = False
+                elif sidechannel_alt_out_next:
+                    self._alt_sidechannel_output = c.uuid
+                    sidechannel_alt_out_next = False
+                print(is_next, sidechannel_alt_next, sidechannel_alt_out_next, c.uuid, c.properties)
+                for desc in c.descriptors:
+                    print("    ", desc)
+
+                    # Switch 2 does this before setting notify, idk why
+                    if c.uuid == full_hid_output and full_hid_output != NS2_BASIC_INPUT_UUID and desc.uuid == NS2_UNK_CHARACTERISTIC:
+                        await client.write_gatt_descriptor(desc.handle, struct.pack("<H", 0x85))
+                        
             print(full_hid_output)
+
+            #await client.write_gatt_char(NS2_UNK_CHARACTERISTIC, struct.pack("<H", 0x85), False)
             #print(services.characteristics)
             #print(services.descriptors)
             #print(client.characteristics)
             
-            await client.start_notify(full_hid_output, _callback_hid_full)
             #await client.start_notify(NS2_UNKNOWN_NOTIFY, _callback_generic)
             #await client.start_notify(NS2_BASIC_INPUT_UUID, _callback_generic)
             await client.start_notify(NS2_SIDECHANNEL_OUT, _callback_sidechannel_response)
+            #await client.start_notify(self._alt_sidechannel_output, _callback_generic)
 
-            # skip 0x03 0x0d
+            #await send_cmd(0x03, 0x0d, bytes([0x01, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])) # skipped for BTLE?
             await send_cmd(0x07, 0x01)
-            await send_cmd(0x16, 0x01)
+            #await send_cmd(0x16, 0x01) #moved for BTLE?
             # skip pairing
             await send_cmd(0x03, 0x09)
-            await send_cmd(0x09, 0x07, struct.pack("<LL", 0xFF, 0))
+            await send_cmd(0x09, 0x07, struct.pack("<LL", 0xFF, 0)) # all LEDs
             await send_cmd(0x0c, 0x02, struct.pack("<L", 0x37))
-            await asyncio.sleep(0.3)
             #spi reads
             await send_cmd(0x11, 0x03)
             #spi reads
-            #0x0a 0x08
+            await send_cmd(0x0a, 0x08, bytes([0x01, 0x55, 0x09, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0x35, 0x00, 0x46, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]))
             await send_cmd(0x0c, 0x04, struct.pack("<L", 0x37))
-            await asyncio.sleep(0.3)
             await send_cmd(0x03, 0x0a, struct.pack("<L", 0x8))
             await send_cmd(0x10, 0x01)
+            await send_cmd(0x16, 0x01) #moved for BTLE? Happens before pairing cmds and after SPI reads
+            #await send_cmd(0x15, 0x03, bytes([0x00]))
             await send_cmd(0x01, 0x0c)
 
             # on seeing input
             await send_cmd(0x03, 0x0c, struct.pack("<L", 0x1))
-            await send_cmd(0x09, 0x07, struct.pack("<LL", 0x1, 0))
+            await send_cmd(0x09, 0x07, struct.pack("<LL", 0x1, 0)) # player 1
             await send_cmd(0x08, 0x02, struct.pack("<L", 0x1))
 
-            while True:
-                #hid_data = await client.read_gatt_char(full_hid_output)
-                #await process_hid_data(hid_data)
-                #print(hid_data)
+            # Post encryption, BTLE
 
+            await client.start_notify(full_hid_output, _callback_hid_full)
+
+            while True:
                 start = time.time()
-                await asyncio.sleep(0.001)
+                
+                '''
+                try:
+                    hid_data = await client.read_gatt_char(full_hid_output)
+                    #await process_hid_data(hid_data)
+                    print(hid_data)
+                    end = time.time()
+                    print("Heartbeat:", (end-start)*1000.0, client.mtu_size)
+                except Exception as e:
+                    print(e)
+                '''
+
+                '''
+                await send_cmd(0x07, 0x01)
                 end = time.time()
-                #print("Heartbeat:", (end-start)*1000.0)
+                print("Heartbeat:", (end-start)*1000.0, client.mtu_size)
+                '''
+                
+                await asyncio.sleep(0.001)
