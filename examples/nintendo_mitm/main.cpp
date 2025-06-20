@@ -901,30 +901,35 @@ restart_loop:
         }
 
         // MITM HID read -> USBD HID out
-        res = hid_read(cctx.hid_handle, hid_rd_buf, 0x400);
-        if(res > 0) {
+        while (!stop) {
+            res = hid_read(cctx.hid_handle, hid_rd_buf, 0x400);
+            if(res > 0) {
 #ifdef DEBUG_PRINT
-            printf("(MITM) RX from HID EP 0x%x: ", iface_a_ep_out);
-            hex_dump(hid_rd_buf, res);
+                printf("(MITM) RX from HID EP 0x%x: ", iface_a_ep_out);
+                hex_dump(hid_rd_buf, res);
 #endif
 
 #ifdef DEBUG_PRINT
-            //printf("(USBD) TX to HID EP 0x%x: ", iface_a_ep_out);
-            //hex_dump(hid_rd_buf, res);
+                //printf("(USBD) TX to HID EP 0x%x: ", iface_a_ep_out);
+                //hex_dump(hid_rd_buf, res);
 #endif
-            memcpy(hid_wr_buf, hid_rd_buf, res);
-            //if (libusbd_ep_transfer_done(pCtx, iface_a_num, iface_a_ep_out)) {
-            libusbd_ep_write_start(pCtx, iface_a_num, iface_a_ep_out, hid_wr_buf, res, 10);
-            //}
+                memcpy(hid_wr_buf, hid_rd_buf, res);
+                //if (libusbd_ep_transfer_done(pCtx, iface_a_num, iface_a_ep_out)) {
+                libusbd_ep_write_start(pCtx, iface_a_num, iface_a_ep_out, hid_wr_buf, res, 1);
+                msleep(1);
+                //}
+                continue;
+            }
+            break;
         }
 
         // MITM sidechannel EP -> USBD sidechannel out
         int bytes_read = ns2_read(&cctx, sidechannel_rd_buf);
         if (bytes_read) {
-            libusbd_ep_write_start(pCtx, iface_b_num, iface_b_ep_out, sidechannel_rd_buf, bytes_read, 10);
+            libusbd_ep_write_start(pCtx, iface_b_num, iface_b_ep_out, sidechannel_rd_buf, bytes_read, 1);
         }
 
-        msleep(10);
+        msleep(1);
         idx++;
 
         char speen_chars[4] = {'/', '-', '\\', '|'};
